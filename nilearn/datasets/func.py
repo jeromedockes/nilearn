@@ -1674,9 +1674,11 @@ def _build_nv_url(base_url, filts=None):
         If filts is a dict, then key-value pairs are added to the
         querystring of the URL. Otherwise, it is ignored.
     """
+    base_url = re.sub(r'([^/])$', '\g<1>/', base_url)
     if filts and isinstance(filts, dict):
-        url = '?'.join(base_url,
-                       '&'.join(['='.join(it) for it in filts.items()]))
+        url = _urllib.parse.urljoin(
+            base_url, '?{}'.format(
+                '&'.join(['='.join(it) for it in filts.items()])))
     else:
         url = base_url
     return url
@@ -1729,7 +1731,6 @@ def _get_nv_json(url, local_file=None, overwrite=False,
         os.remove(os.path.join(data_dir, filename))
     return meta
 
-
 def _get_nv_collections_json(url, data_dir, overwrite=False, query_server=True,
                              verbose=2):
     """Get remote list of collections (don't cache locally).
@@ -1774,8 +1775,7 @@ def _get_nv_collections_json(url, data_dir, overwrite=False, query_server=True,
     collection_dirs = [os.path.basename(p)
                        for p in glob.glob(os.path.join(data_dir, '*'))
                        if os.path.isdir(p)]
-    collection_dirs = sorted(collection_dirs,
-                             lambda k1, k2: int(k1) - int(k2))
+    collection_dirs = sorted(collection_dirs, key=int)
 
     coll_meta = dict(results=[], next=None)
     for cdir in collection_dirs:
@@ -1785,7 +1785,6 @@ def _get_nv_collections_json(url, data_dir, overwrite=False, query_server=True,
             with io.open(coll_meta_path, 'r', encoding='utf8') as fp:
                 coll_meta['results'].append(json.load(fp))
     return coll_meta
-
 
 def _filter_nv_results(results, filts):
     """Filter NeuroVault metadata.
@@ -1801,11 +1800,10 @@ def _filter_nv_results(results, filts):
         each value in the list of dicts. If the lambda
         function returns False, the item is discarded.
     """
-    if isinstance(filts, collections.Iterable):
+    if isinstance(filts, collections.Sequence):
         for filt in filts:
-            results = [r for r in results if filt(r)]
-    return results
-
+            results = filter(filt, results)
+    return list(results)
 
 def _fetch_nv_terms(image_ids, data_dir=None, verbose=2, query_server=True,
                     url='http://neurosynth.org/api/v2/decode/'):
@@ -1888,6 +1886,13 @@ def _fetch_nv_terms(image_ids, data_dir=None, verbose=2, query_server=True,
                        if np.sum(v[v > 0]) > 0.])
     return good_terms
 
+_NEUROVAULT_KNOWN_BAD_COLLECTION_IDS = [16]
+_NEUROVAULT_KNOWN_BAD_IMAGE_IDS = [
+    96, 97, 98,                    # The following maps are not brain maps
+    338, 339,                      # And the following are crap
+    335,                           # 335 is a duplicate of 336
+    3360, 3362, 3364,              # These are mean images, and not Z maps
+    1202, 1163, 1931, 1101, 1099]  # Ugly / obviously not Z maps
 
 def fetch_neurovault(max_images=np.inf,
                      query_server=True,
@@ -1896,7 +1901,8 @@ def fetch_neurovault(max_images=np.inf,
                      exclude_known_bad_images=True,
                      collection_ids=(),
                      image_ids=(), image_type=None, map_types=(),
-                     collection_filters=(), image_filters=(),
+                     collection_filters=(), collection_query={},
+                     image_filters=(),
                      data_dir=None, url="http://neurovault.org/api",
                      resume=True, overwrite=False, verbose=2):
     """Fetch public statistical maps from NeuroVault.org.
@@ -1955,32 +1961,24 @@ def fetch_neurovault(max_images=np.inf,
         These include: "F map", "T map", "Z map". See the NeuroVault
         website for an update-to-date list.
 
-    collection_filters: list or dict, optional (default None)
+    collection_filters: list, optional (default None)
         Filters to limit data retrieval and return via the NeuroVault API.
-        If a list, each element should be a function that
-            returns True if the collection metadata is a match.
-            Filtering is applied after metadata is downloaded.
-        If a dict, each key-value pair is an API filter.
-            The key will be checked for equality to the value.
-            Keys are applied before metadata download, limiting
-            the number of rows returned and possibly the number
-            of round trips made.
+        each element should be a function that
+        returns True if the collection metadata is a match.
+        Filtering is applied after metadata is downloaded.
+
+    collection_query: dict, optional (default={})
+        filters (key=value) pairs to include in GET requests to
+        Neurovault API for collections.
         (see http://neurovault.org/api-docs#collapseCollections for
          API keys and collection metadata keys)
 
-    image_filters: list or dict, optional (default None)
+    image_filters: list, optional (default None)
         Filters to limit data retrieval and return via the NeuroVault API.
-        If a list, each element should be a function that
-            returns True if the image metadata is a match.
-            Filtering is applied after metadata is downloaded.
-            Matched image metadata will trigger actual image download.
-        If a dict, each key-value pair is an API filter.
-            The key will be checked for equality to the value.
-            Keys are applied before metadata download, limiting
-            the number of rows returned and possibly the number
-            of round trips made.
-        (see http://neurovault.org/api-docs#collapseImages for
-         API keys and collection metadata keys)
+        each element should be a function that
+        returns True if the image metadata is a match.
+        Filtering is applied after metadata is downloaded.
+        Matched image metadata will trigger actual image download.
 
     data_dir: string, optional (default None)
         Path of the data directory. Used to force data storage in a specified
@@ -2026,15 +2024,12 @@ def fetch_neurovault(max_images=np.inf,
         doi: 10.3389/fninf.2015.00008
     """
 
+    collections_url = _build_nv_url(base_url='{}/collections'.format(url),
+                                    filts=collection_query)
     # Massage parameters, convert into image filters.
     if exclude_known_bad_images:
-        bad_collects = [16]
-        bad_image_ids = [
-            96, 97, 98,                    # The following maps are not brain maps
-            338, 339,                      # And the following are crap
-            335,                           # 335 is a duplicate of 336
-            3360, 3362, 3364,              # These are mean images, and not Z maps
-            1202, 1163, 1931, 1101, 1099]  # Ugly / obviously not Z maps
+        bad_collects = _NEUROVAULT_KNOWN_BAD_COLLECTION_IDS
+        bad_image_ids = _NEUROVAULT_KNOWN_BAD_IMAGE_IDS
         collection_ids = chain(collection_ids, [-bid for bid in bad_collects])
         image_ids = chain(image_ids, [-bid for bid in bad_image_ids])
         image_filters = chain(image_filters,
@@ -2051,8 +2046,9 @@ def fetch_neurovault(max_images=np.inf,
             collection_filters = chain(collection_filters,
                                        [lambda c: c.get('id') in _pos_col_ids])
         if _neg_col_ids:
-            collection_filters = chain(collection_filters,
-                                       [lambda c: c.get('id') not in _neg_col_ids])
+            collection_filters = chain(
+                collection_filters,
+                [lambda c: c.get('id') not in _neg_col_ids])
     if image_ids:  # positive: include; negative: exclude
         image_ids = tuple(image_ids)  # consume more than once
         _pos_im_ids = [iid for iid in image_ids if iid >= 0]
@@ -2071,17 +2067,16 @@ def fetch_neurovault(max_images=np.inf,
     if map_types:
         image_filters = chain(image_filters,
                               [lambda im: im.get('map_type') in map_types])
-    image_filters = tuple(image_filters)  # convert to tuples, we need to consume
-    collection_filters = tuple(collection_filters)  # these filters many times.
+    # convert to tuples, we need to consume
+    # these filters many times.
+    image_filters = tuple(image_filters)
+    collection_filters = tuple(collection_filters)
     data_dir = _get_dataset_dir('neurovault', data_dir=data_dir)
 
     collects = dict()
     images = []
     func_files = []
 
-    # Retrieve the relevant collects
-    collections_url = _build_nv_url(base_url=url + '/collections',
-                                    filts=collection_filters)
     coll_meta = dict(next=collections_url)
     while len(func_files) < max_images and coll_meta['next'] is not None:
         # GET up to 100 collections, but without caching, and filter results.
@@ -2122,7 +2117,8 @@ def fetch_neurovault(max_images=np.inf,
 
                 tmp_meta = _get_nv_json(imgs_meta_url, local_path,
                                         overwrite=overwrite, verbose=verbose)
-                all_images, imgs_meta_url = tmp_meta['results'], tmp_meta['next']
+                all_images, imgs_meta_url = (tmp_meta['results'],
+                                             tmp_meta['next'])
 
                 good_images = _filter_nv_results(results=all_images,
                                                  filts=image_filters)
@@ -2141,7 +2137,8 @@ def fetch_neurovault(max_images=np.inf,
                             files=[(im_filename, im_url, {})],
                             verbose=verbose, query_server=query_server)[0]
                     except Exception as e:
-                        print("ERROR: failed to download image %d (col=%d): %s" % (
+                        print("ERROR: failed to download image "
+                        "%d (col=%d): %s" % (
                             im['id'], coll['id'], e))
                         continue
                     if real_image_path is None:
