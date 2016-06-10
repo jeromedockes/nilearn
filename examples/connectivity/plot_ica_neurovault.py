@@ -47,15 +47,15 @@ def cast_img(img, dtype=np.float32):
 
 ### Get image and term data ###################################################
 # Download 100 matching images
-ss_all = datasets.fetch_neurovault(max_images=100,  # Use np.inf for all imgs.
+ss_all = datasets.fetch_neurovault(max_images=100, # Use np.inf for all imgs.
                                    map_types=['F map', 'T map', 'Z map'],
                                    fetch_terms=True)
 images, collections = ss_all['images'], ss_all['collections']
 term_scores = ss_all['terms']
 
 # Clean & report term scores
-terms = np.array(term_scores.keys())
-term_matrix = np.asarray(term_scores.values())
+terms = np.array(list(term_scores.keys()))
+term_matrix = np.asarray(list(term_scores.values()))
 term_matrix[term_matrix < 0] = 0
 total_scores = np.mean(term_matrix, axis=1)
 
