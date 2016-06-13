@@ -78,21 +78,32 @@ def _empty_filter(arg):
     return True
 
 
+def _get_encoding(resp):
+    encoding = None
+    try:
+        encoding = resp.headers.get_content_charset()
+    except AttributeError as e:
+        pass
+    content_type = resp.headers.get('Content-Type')
+    encoding = re.search(r'charset=\b(.+)\b', content_type).group(1)
+    return encoding
+
 def _get_batch(query, prefix_msg=''):
     request = Request(query)
     opener = build_opener()
     _logger.debug('{}getting new batch: {}'.format(
-        prefix_msg, new_query))
+        prefix_msg, query))
     try:
-        with opener.open(request) as resp:
-            content_type = resp.getheader('Content-Type')
-            content = resp.read()
+        resp = opener.open(request)
+        encoding = _get_encoding(resp)
+        content = resp.read()
+        resp.close()
     except Exception as e:
+        resp.close()
         _logger.exception(
             'could not download batch from {}'.format(query))
         return None
     try:
-        encoding = re.search(r'charset=\b(.+)\b', content_type).group(1)
         batch = json.loads(content.decode(encoding))
     except Exception as e:
         _logger.exception('could not decypher batch from {}'.format(query))
@@ -101,7 +112,7 @@ def _get_batch(query, prefix_msg=''):
         if batch.get(key) is None:
             _logger.error('could not find required key "{}" '
                           'in batch retrieved from {}'.format(key, query))
-        return None
+            return None
 
     return batch
 
@@ -175,7 +186,7 @@ class ResultFilter(object):
 
     def __call__(self, candidate):
         for key, value in self.query_terms_.items():
-            if candidate.get(key) != value:
+            if not(value == candidate.get(key)):
                 return False
         for callable_filter in self.callable_filters_:
             if not callable_filter(candidate):
@@ -238,14 +249,22 @@ class BaseDownloadManager(object):
         self.already_downloaded_ = 0
 
     def collection(self, collection_info):
-        return collection_info
+        return self._collection_hook(collection_info)
 
     def image(self, image_info):
         if self.already_downloaded_ == self.max_images_:
             raise StopIteration()
+        image_info = self._image_hook(image_info)
         self.already_downloaded_ += 1
         return image_info
 
+    def _collection_hook(self, collection_info):
+        return collection_info
+
+    # TODO: raise NotImplementedError and
+    # crate other class, MockDownloadManager
+    def _image_hook(self, image_info):
+        return image_info
 
 class DownloadManager(BaseDownloadManager):
 
@@ -256,13 +275,18 @@ class DownloadManager(BaseDownloadManager):
         self.data_dir_ = os.path.abspath(os.path.expanduser(data_dir))
         if not os.path.isdir(self.data_dir_):
             os.makedirs(self.data_dir_)
-        if not os.path.isdir(temp_dir):
+        if not os.access(self.data_dir_, os.W_OK):
+            raise IOError('Permission denied: {}'.format(self.data_dir_))
+        if temp_dir is None or not os.path.isdir(temp_dir):
             temp_dir = mkdtemp()
+        if not os.access(temp_dir, os.W_OK):
+            raise IOError('Permission denied: {}'.format(temp_dir))
         self.temp_dir_ = temp_dir
 
-    def collection(self, collection_info):
+    def _collection_hook(self, collection_info):
         collection_id = collection_info['id']
-        collection_dir = os.path.join(self.data_dir_, collection_id)
+        collection_dir = os.path.join(
+            self.data_dir_, 'collection_{}'.format(collection_id))
         collection_info['local_path'] = collection_dir
         if not os.path.isdir(collection_dir):
             os.makedirs(collection_dir)
@@ -272,9 +296,10 @@ class DownloadManager(BaseDownloadManager):
             json.dump(collection_info, metadata_file)
         return collection_info
 
-    def image(self, image_info):
+    def _image_hook(self, image_info):
         collection_id = image_info['collection_id']
-        collection_dir = os.path.join(self.data_dir_, collection_id)
+        collection_dir = os.path.join(
+            self.data_dir_, 'collection_{}'.format(collection_id))
         image_id = image_info['id']
         image_url = image_info['url']
         if not os.path.isdir(collection_dir):
@@ -282,10 +307,13 @@ class DownloadManager(BaseDownloadManager):
         metadata_file_path = os.path.join(
             collection_dir, 'image_{}_metadata.json'.format(image_id))
         image_file_path = os.path.join(
-            collection_dir, 'image_{}__.nii.gz'.format(image_id))
+            collection_dir, 'image_{}.nii.gz'.format(image_id))
+        _logger.debug('downloading file: {}'.format(image_url))
         downloaded = _fetch_file(image_url, self.temp_dir_, resume=False,
                                  overwrite=True, verbose=0)
         shutil.move(downloaded, image_file_path)
+        _logger.debug(
+            'download succeeded, downloaded to: {}'.format(image_file_path))
         image_info['local_path'] = image_file_path
         with open(metadata_file_path, 'w') as metadata_file:
             json.dump(image_info, metadata_file)
@@ -312,6 +340,8 @@ def _scroll_server_data(collection_query_terms={},
         try:
             collection = download_manager.collection(collection)
         except Exception as e:
+            if isinstance(e, StopIteration):
+                raise
             _logger.exception('_scroll_server_data: bad collection: {}'.format(
                 collection))
             bad_collection = True
@@ -329,13 +359,15 @@ def _scroll_server_data(collection_query_terms={},
                     image = download_manager.image(image)
                     yield image, collection
                 except Exception as e:
+                    if isinstance(e, StopIteration):
+                        raise
                     _logger.exception(
                         '_scroll_server_data: bad image: {}'.format(image))
 
 
 def _json_from_file(filename):
-    with open(filename, 'r', encoding='utf-8') as dumped:
-        loaded = json.load(dumped)
+    with open(filename, 'rb') as dumped:
+        loaded = json.loads(dumped.read().decode('utf-8'))
     return loaded
 
 
@@ -498,6 +530,9 @@ def fetch_neurovault(max_images=None,
                                       download_manager=download_manager,
                                       max_images=max_images)
 
+    scroller = list(scroller)
+    if not scroller:
+        return None
     images_meta, collections_meta = zip(*scroller)
     images = [im_meta['local_path'] for im_meta in images_meta]
     return {'images': images,
