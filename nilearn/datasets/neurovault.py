@@ -150,7 +150,7 @@ def _scroll_server_results(url, local_filter=_empty_filter,
     ----------
     url: str
     the base url (without the filters) from which to get data
-    
+
     local_filter: callable, optional (default=_empty_filter)
     Used to filter the results based on their metadata:
     must return True is the result is to be kept and False otherwise.
@@ -166,7 +166,7 @@ def _scroll_server_results(url, local_filter=_empty_filter,
 
     batch_size: int or None, optional (default=None)
     Neurovault returns the metadata for hits corresponding to a query
-    in batches. batch_size is used to choose the (maximum) number of 
+    in batches. batch_size is used to choose the (maximum) number of
     elements in a batch. If None, _default_batch_size() is used.
 
     prefix_msg: str, optional (default='')
@@ -249,17 +249,17 @@ class NotEqual(object):
 class ResultFilter(object):
     """Easily create callable (local) filters for fetch_neurovault.
 
-    Constructed from a mapping of key-value pairs (optional) 
+    Constructed from a mapping of key-value pairs (optional)
     and a callable filter (also optional),
-    instances of this class are meant to be used as image_filter or 
+    instances of this class are meant to be used as image_filter or
     collection_filter parameters for fetch_neurovault.
 
-    Such filters can be combined using 
+    Such filters can be combined using
     the logical operators |, &,  ^, not,
     with the usual semantics.
 
-    Key-value pairs can be added by treating a ResultFilter as a 
-    dictionary: after evaluating res_filter[key] = value, only 
+    Key-value pairs can be added by treating a ResultFilter as a
+    dictionary: after evaluating res_filter[key] = value, only
     metadata such that metadata[key] == value will pass through the
     filter.
 
@@ -389,7 +389,7 @@ class ResultFilter(object):
         return self.query_terms_[item]
 
     def __setitem__(self, item, value):
-        """Set item in query_terms_"""        
+        """Set item in query_terms_"""
         self.query_terms_[item] = value
 
     def __delitem__(self, item):
@@ -399,78 +399,14 @@ class ResultFilter(object):
 
     def add_filter(callable_filter):
         """Add a function to the callable_filters_.
-        
+
         After a call add_filter(additional_filt), in addition
         to all the previous requirements, a candidate must also
-        verify additional_filt(candidate) in order to pass through 
+        verify additional_filt(candidate) in order to pass through
         the filter.
 
         """
         self.callable_filters_.append(callable_filter)
-
-
-class BaseDownloadManager(object):
-    """Base class for all download managers.
-
-    download managers are used as parameters for 
-    fetch_neurovault; they download the files and store them
-    on disk.
-
-    A BaseDownloadManager does not download anything, 
-    but increments a counter each time self.image is called,
-    and raises a StopIteration exception when the specified 
-    max number of images has been reached.
-
-    Subclasses should override _collection_hook and
-    _image_hook in order to perform the actual work.
-    They should not override image as it is responsible for
-    stopping the stream of metadata when the max numbers of
-    images has been reached.
-
-    Attributes
-    ----------
-    max_images: int
-    Number of calls to self.image after which 
-    a StopIteration exception will be raised.
-
-    Methods
-    -------
-    collection:
-    Called each time metadata for a collection is retrieved.
-
-    image:
-    Called each time metadata for an image is retreived.
-
-    _collection_hook, _image_hook:
-    Callbacks to be overriden by subclasses. They should perform
-    the necessary actions in order to save the relevant data on disk,
-    and return the metadata (which they may have modified).
-
-    """
-    def __init__(self, max_images=100):
-        if max_images is not None and max_images < 0:
-            max_images = None
-        self.max_images_ = max_images
-        self.already_downloaded_ = 0
-
-    def collection(self, collection_info):
-        return self._collection_hook(collection_info)
-
-    def image(self, image_info):
-        """Stop metadata stream if max_images has been reached."""
-        if self.already_downloaded_ == self.max_images_:
-            raise StopIteration()
-        image_info = self._image_hook(image_info)
-        self.already_downloaded_ += 1
-        return image_info
-
-    def _collection_hook(self, collection_info):
-        """Hook for subclasses."""
-        return collection_info
-
-    def _image_hook(self, image_info):
-        """Hook for subclasses."""
-        return image_info
 
 
 def _simple_download(url, target_file, temp_dir):
@@ -524,12 +460,82 @@ def _fetch_neurosynth_words(image_id, target_file, temp_dir):
                     '?neurovault={}'.format(image_id))
     _simple_download(query, target_file, temp_dir)
 
+
+class BaseDownloadManager(object):
+    """Base class for all download managers.
+
+    download managers are used as parameters for
+    fetch_neurovault; they download the files and store them
+    on disk.
+
+    A BaseDownloadManager does not download anything,
+    but increments a counter each time self.image is called,
+    and raises a StopIteration exception when the specified
+    max number of images has been reached.
+
+    Subclasses should override _collection_hook and
+    _image_hook in order to perform the actual work.
+    They should not override image as it is responsible for
+    stopping the stream of metadata when the max numbers of
+    images has been reached.
+
+    Attributes
+    ----------
+    max_images: int
+    Number of calls to self.image after which
+    a StopIteration exception will be raised.
+
+    nv_data_dir_: str
+    Path to the neurovault home directory.
+
+    Methods
+    -------
+    collection:
+    Called each time metadata for a collection is retrieved.
+
+    image:
+    Called each time metadata for an image is retreived.
+
+    _collection_hook, _image_hook:
+    Callbacks to be overriden by subclasses. They should perform
+    the necessary actions in order to save the relevant data on disk,
+    and return the metadata (which they may have modified).
+
+    """
+    def __init__(self, neurovault_data_dir=None, max_images=100):
+        self.nv_data_dir_ = _checked_get_dataset_dir(
+            'neurovault', neurovault_data_dir)
+        if max_images is not None and max_images < 0:
+            max_images = None
+        self.max_images_ = max_images
+        self.already_downloaded_ = 0
+
+    def collection(self, collection_info):
+        return self._collection_hook(collection_info)
+
+    def image(self, image_info):
+        """Stop metadata stream if max_images has been reached."""
+        if self.already_downloaded_ == self.max_images_:
+            raise StopIteration()
+        image_info = self._image_hook(image_info)
+        self.already_downloaded_ += 1
+        return image_info
+
+    def _collection_hook(self, collection_info):
+        """Hook for subclasses."""
+        return collection_info
+
+    def _image_hook(self, image_info):
+        """Hook for subclasses."""
+        return image_info
+
+
 class DownloadManager(BaseDownloadManager):
     """Store maps, metadata, reduced representations and associated words.
 
     This download manager stores:
     - in nv_data_dir_: for each collection, a subdirectory
-    containing metadata for the collection, the brain maps, the 
+    containing metadata for the collection, the brain maps, the
     metadata for the brain maps, and reduced representations (.npy) files
     of these maps.
     subdirectories are named collection_<Neurovault collection id>
@@ -541,11 +547,11 @@ class DownloadManager(BaseDownloadManager):
     - optionally, in ns_data_dir_: for each image, the words that were
     associated to it by Neurosynth and their weights, as a json file.
     These files are named words_for_image<NV image id>.json
- 
+
     Attributes
     ----------
     max_images_: int
-    number of downloaded images after which the metadata stream is 
+    number of downloaded images after which the metadata stream is
     stopped (StopIteration is raised).
 
     nv_data_dir_: str
@@ -563,7 +569,7 @@ class DownloadManager(BaseDownloadManager):
 
     Methods
     -------
-    __init__: 
+    __init__:
     Specify directories and wether to fetch Neurosynth words.
 
     collection:
@@ -576,7 +582,7 @@ class DownloadManager(BaseDownloadManager):
     Receive image metadata, stop data stream if max_images is reached.
 
     _image_hook:
-    Download image, reduced representation if available, 
+    Download image, reduced representation if available,
     Neurosynth words if required, and store them on disk.
 
     """
@@ -600,7 +606,7 @@ class DownloadManager(BaseDownloadManager):
 
         neursynth_data_dir: str or None, optional (default=None)
         Directory in which to store Neurosynth words.
-        if None, a reasonable location is found by _get_dataset_dir.        
+        if None, a reasonable location is found by _get_dataset_dir.
 
         max_images: int, optional (default=100)
         Maximum number of images to download.
@@ -610,9 +616,8 @@ class DownloadManager(BaseDownloadManager):
         None
 
         """
-        super(DownloadManager, self).__init__(max_images=max_images)
-        self.nv_data_dir_ = _checked_get_dataset_dir(
-            'neurovault', neurovault_data_dir)
+        super(DownloadManager, self).__init__(
+            neurovault_data_dir=neurovault_data_dir, max_images=max_images)
         self.temp_dir_ = _get_temp_dir(temp_dir)
         self.fetch_ns_ = fetch_neurosynth_words
         if self.fetch_ns_:
@@ -621,12 +626,12 @@ class DownloadManager(BaseDownloadManager):
 
     def _collection_hook(self, collection_info):
         """Create collection subdir and store metadata.
-        
+
         Parameters
         ----------
         collection_info: dict
         Collection metadata
-        
+
         Returns
         -------
         collection_info: dict
@@ -665,7 +670,7 @@ class DownloadManager(BaseDownloadManager):
         collection_dir = os.path.join(
             self.nv_data_dir_, 'collection_{}'.format(collection_id))
         image_id = image_info['id']
-        image_url = image_info['url']
+        image_url = image_info['file']
         if not os.path.isdir(collection_dir):
             os.makedirs(collection_dir)
         metadata_file_path = os.path.join(
@@ -688,9 +693,11 @@ class DownloadManager(BaseDownloadManager):
             image_info['neurosynth_words_local_path'] = ns_words_file
         with open(metadata_file_path, 'w') as metadata_file:
             json.dump(image_info, metadata_file)
+        # self.already_downloaded_ is incremented only after
+        # this routine returns successfully.
         _logger.debug('already downloaded {} image{}'.format(
-            self.already_downloaded_,
-            ('s' if self.already_downloaded_ > 1 else '')))
+            self.already_downloaded_ + 1,
+            ('s' if self.already_downloaded_ + 1 > 1 else '')))
         return image_info
 
 
@@ -913,7 +920,7 @@ def fetch_neurovault(max_images=None,
                      image_terms=default_image_terms(),
                      image_filter=_empty_filter,
                      mode='download_new',
-                     neurovault_data_dir=None, 
+                     neurovault_data_dir=None,
                      neurosynth_data_dir=None, fetch_neurosynth_words=False,
                      download_manager=None, **kwargs):
     """Download data from neurovault.org and neurosynth.org."""
@@ -940,7 +947,7 @@ def fetch_neurovault(max_images=None,
     if not scroller:
         return None
     images_meta, collections_meta = zip(*scroller)
-    images = [im_meta['local_path'] for im_meta in images_meta]
+    images = [im_meta.get('local_path') for im_meta in images_meta]
     return {'images': images,
             'images_meta': images_meta,
             'collections_meta': collections_meta}
@@ -967,5 +974,5 @@ def show_neurovault_image_keys():
 
 
 def show_neurovault_collection_keys():
-    """Display keys found in Neurovault metadata for a collection."""    
+    """Display keys found in Neurovault metadata for a collection."""
     pprint(_get_neurovault_keys()[1])
