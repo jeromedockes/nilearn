@@ -1,21 +1,296 @@
 import os
 import logging
-from copy import deepcopy
+import warnings
+from copy import copy, deepcopy
 import shutil
 import re
 import json
 from glob import glob
 from tempfile import mkdtemp
 from pprint import pprint
+import sqlite3
+from collections import OrderedDict
+import atexit
 
+from matplotlib import pyplot as plt
+from matplotlib.gridspec import GridSpec
+import numpy as np
+from sklearn.datasets.base import Bunch
+
+from .utils import _fetch_file, _get_dataset_dir
 from .._utils.compat import _urllib
 urljoin, urlencode = _urllib.parse.urljoin, _urllib.parse.urlencode
 Request, build_opener = _urllib.request.Request, _urllib.request.build_opener
-from .utils import _fetch_file, _get_dataset_dir
 
+
+# TODO: make docstrings conform to numpy and scikit-learn recommandations
+# TODO: refresh_local_database()
+# TODO: what to do if someone tries to add columns to local db?
+# TODO: tests!!
+
+_NEUROVAULT_BASE_URL = 'http://neurovault.org/api/'
+_NEUROVAULT_COLLECTIONS_URL = urljoin(_NEUROVAULT_BASE_URL, 'collections/')
+_NEUROVAULT_IMAGES_URL = urljoin(_NEUROVAULT_BASE_URL, 'images/')
+_NEUROSYNTH_FETCH_WORDS_URL = 'http://neurosynth.org/api/v2/decode/'
 
 _COL_FILTERS_AVAILABLE_ON_SERVER = {'DOI', 'name', 'owner'}
 _IM_FILTERS_AVAILABLE_ON_SERVER = set()
+
+_DEFAULT_BATCH_SIZE = 100
+
+_PY_TO_SQL_TYPE = {int: 'INTEGER', float: 'REAL', str: 'VARCHAR'}
+
+_IMAGE_BASIC_FIELDS = OrderedDict()
+_IMAGE_BASIC_FIELDS['id'] = int
+_IMAGE_BASIC_FIELDS['name'] = str
+_IMAGE_BASIC_FIELDS['local_path'] = str
+_IMAGE_BASIC_FIELDS['collection_id'] = int
+_IMAGE_BASIC_FIELDS['collection'] = str
+_IMAGE_BASIC_FIELDS['add_date'] = str
+_IMAGE_BASIC_FIELDS['modify_date'] = str
+_IMAGE_BASIC_FIELDS['image_type'] = str
+_IMAGE_BASIC_FIELDS['map_type'] = str
+_IMAGE_BASIC_FIELDS['url'] = str
+_IMAGE_BASIC_FIELDS['file'] = str
+_IMAGE_BASIC_FIELDS['file_size'] = int
+_IMAGE_BASIC_FIELDS['is_thresholded'] = int
+_IMAGE_BASIC_FIELDS['is_valid'] = int
+_IMAGE_BASIC_FIELDS['modality'] = str
+_IMAGE_BASIC_FIELDS['not_mni'] = int
+_IMAGE_BASIC_FIELDS['description'] = str
+_IMAGE_BASIC_FIELDS['brain_coverage'] = float
+_IMAGE_BASIC_FIELDS['perc_bad_voxels'] = float
+_IMAGE_BASIC_FIELDS['perc_voxels_outside'] = float
+_IMAGE_BASIC_FIELDS['reduced_representation'] = str
+_IMAGE_BASIC_FIELDS['reduced_representation_local_path'] = str
+_IMAGE_BASIC_FIELDS['neurosynth_words_local_path'] = str
+
+
+def _translate_types_to_sql(fields_dict):
+    sql_fields = OrderedDict()
+    for k, v in fields_dict.items():
+        sql_fields[k] = _PY_TO_SQL_TYPE.get(v, '')
+    return sql_fields
+
+
+_IMAGE_BASIC_FIELDS_SQL = _translate_types_to_sql(_IMAGE_BASIC_FIELDS)
+
+_COLLECTION_BASIC_FIELDS = OrderedDict()
+_COLLECTION_BASIC_FIELDS['id'] = int,
+_COLLECTION_BASIC_FIELDS['local_path'] = str,
+_COLLECTION_BASIC_FIELDS['DOI'] = str,
+_COLLECTION_BASIC_FIELDS['name'] = str,
+_COLLECTION_BASIC_FIELDS['add_date'] = str,
+_COLLECTION_BASIC_FIELDS['modify_date'] = str,
+_COLLECTION_BASIC_FIELDS['number_of_images'] = int,
+_COLLECTION_BASIC_FIELDS['url'] = str
+_COLLECTION_BASIC_FIELDS['owner'] = int,
+_COLLECTION_BASIC_FIELDS['owner_name'] = str,
+_COLLECTION_BASIC_FIELDS['contributors'] = str,
+
+_COLLECTION_BASIC_FIELDS_SQL = _translate_types_to_sql(
+    _COLLECTION_BASIC_FIELDS)
+
+_ALL_IMAGE_FIELDS = copy(_IMAGE_BASIC_FIELDS)
+
+_ALL_IMAGE_FIELDS['Action Observation'] = str,
+_ALL_IMAGE_FIELDS['Acupuncture'] = str,
+_ALL_IMAGE_FIELDS['Age'] = str,
+_ALL_IMAGE_FIELDS['Anti-Saccades'] = str,
+_ALL_IMAGE_FIELDS['Braille Reading'] = str,
+_ALL_IMAGE_FIELDS['Breath-Holding'] = str,
+_ALL_IMAGE_FIELDS['CIAS'] = str,
+_ALL_IMAGE_FIELDS['Chewing/Swallowing'] = str,
+_ALL_IMAGE_FIELDS['Classical Conditioning'] = str,
+_ALL_IMAGE_FIELDS['Counting/Calculation'] = str,
+_ALL_IMAGE_FIELDS['Cued Explicit Recognition'] = str,
+_ALL_IMAGE_FIELDS['Deception Task'] = str,
+_ALL_IMAGE_FIELDS['Deductive Reasoning'] = str,
+_ALL_IMAGE_FIELDS['Delay Discounting Task'] = str,
+_ALL_IMAGE_FIELDS['Delayed Match To Sample'] = str,
+_ALL_IMAGE_FIELDS['Divided Auditory Attention'] = str,
+_ALL_IMAGE_FIELDS['Drawing'] = str,
+_ALL_IMAGE_FIELDS['Eating/Drinking'] = str,
+_ALL_IMAGE_FIELDS['Encoding'] = str,
+_ALL_IMAGE_FIELDS['Episodic Recall'] = str,
+_ALL_IMAGE_FIELDS['Face Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Film Viewing'] = str,
+_ALL_IMAGE_FIELDS['Finger Tapping'] = str,
+_ALL_IMAGE_FIELDS['Fixation'] = str,
+_ALL_IMAGE_FIELDS['Flanker Task'] = str,
+_ALL_IMAGE_FIELDS['Flashing Checkerboard'] = str,
+_ALL_IMAGE_FIELDS['Flexion/Extension'] = str,
+_ALL_IMAGE_FIELDS['Free Word List Recall'] = str,
+_ALL_IMAGE_FIELDS['Go/No-Go'] = str,
+_ALL_IMAGE_FIELDS['Grasping'] = str,
+_ALL_IMAGE_FIELDS['Imagined Movement'] = str,
+_ALL_IMAGE_FIELDS['Imagined Objects/Scenes'] = str,
+_ALL_IMAGE_FIELDS['Isometric Force'] = str,
+_ALL_IMAGE_FIELDS['Mental Rotation'] = str,
+_ALL_IMAGE_FIELDS['Micturition Task'] = str,
+_ALL_IMAGE_FIELDS['Music Comprehension/Production'] = str,
+_ALL_IMAGE_FIELDS['Naming Covert)'] = str,
+_ALL_IMAGE_FIELDS['Naming Overt)'] = str,
+_ALL_IMAGE_FIELDS['Non-Painful Electrical Stimulation'] = str,
+_ALL_IMAGE_FIELDS['Non-Painful Thermal Stimulation'] = str,
+_ALL_IMAGE_FIELDS['Oddball Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Olfactory Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Orthographic Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Pain Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['PainLevel'] = str,
+_ALL_IMAGE_FIELDS['Paired Associate Recall'] = str,
+_ALL_IMAGE_FIELDS['Passive Listening'] = str,
+_ALL_IMAGE_FIELDS['Passive Viewing'] = str,
+_ALL_IMAGE_FIELDS['Phonological Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Pitch Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Pointing'] = str,
+_ALL_IMAGE_FIELDS['Posner Task'] = str,
+_ALL_IMAGE_FIELDS['Reading Covert)'] = str,
+_ALL_IMAGE_FIELDS['Reading Overt)'] = str,
+_ALL_IMAGE_FIELDS['Recitation/Repetition Covert)'] = str,
+_ALL_IMAGE_FIELDS['Recitation/Repetition Overt)'] = str,
+_ALL_IMAGE_FIELDS['Rest'] = str,
+_ALL_IMAGE_FIELDS['Reward Task'] = str,
+_ALL_IMAGE_FIELDS['Saccades'] = str,
+_ALL_IMAGE_FIELDS['Semantic Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Sequence Recall/Learning'] = str,
+_ALL_IMAGE_FIELDS['Sex'] = str,
+_ALL_IMAGE_FIELDS['Simon Task'] = str,
+_ALL_IMAGE_FIELDS['Sleep'] = str,
+_ALL_IMAGE_FIELDS['Spatial/Location Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Sternberg Task'] = str,
+_ALL_IMAGE_FIELDS['Stroop Task'] = str,
+_ALL_IMAGE_FIELDS['SubjectID'] = str,
+_ALL_IMAGE_FIELDS['Subjective Emotional Picture Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Syntactic Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Tactile Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Task Switching'] = str,
+_ALL_IMAGE_FIELDS['Theory of Mind Task'] = str,
+_ALL_IMAGE_FIELDS['Tone Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Tower of London'] = str,
+_ALL_IMAGE_FIELDS['Transcranial Magnetic Stimulation'] = str,
+_ALL_IMAGE_FIELDS['Vibrotactile Monitor/Discrimination'] = str,
+_ALL_IMAGE_FIELDS['Video Games'] = str,
+_ALL_IMAGE_FIELDS['Visual Distractor/Visual Attention'] = str,
+_ALL_IMAGE_FIELDS['Visual Pursuit/Tracking'] = str,
+_ALL_IMAGE_FIELDS['Whistling'] = str,
+_ALL_IMAGE_FIELDS['Wisconsin Card Sorting Test'] = str,
+_ALL_IMAGE_FIELDS['Word Generation Covert)'] = str,
+_ALL_IMAGE_FIELDS['Word Generation Overt)'] = str,
+_ALL_IMAGE_FIELDS['Word Stem Completion Covert)'] = str,
+_ALL_IMAGE_FIELDS['Word Stem Completion Overt)'] = str,
+_ALL_IMAGE_FIELDS['Writing'] = str,
+_ALL_IMAGE_FIELDS['analysis_level'] = str,
+_ALL_IMAGE_FIELDS['cognitive_contrast_cogatlas'] = str,
+_ALL_IMAGE_FIELDS['cognitive_contrast_cogatlas_id'] = str,
+_ALL_IMAGE_FIELDS['cognitive_paradigm_cogatlas'] = str,
+_ALL_IMAGE_FIELDS['cognitive_paradigm_cogatlas_id'] = str,
+_ALL_IMAGE_FIELDS['contrast_definition'] = str,
+_ALL_IMAGE_FIELDS['contrast_definition_cogatlas'] = str,
+_ALL_IMAGE_FIELDS['data'] = dict,
+_ALL_IMAGE_FIELDS['figure'] = str,
+_ALL_IMAGE_FIELDS['label_description_file'] = str,
+_ALL_IMAGE_FIELDS['n-back'] = str,
+_ALL_IMAGE_FIELDS['nidm_results'] = str,
+_ALL_IMAGE_FIELDS['nidm_results_ttl'] = str,
+_ALL_IMAGE_FIELDS['number_of_subjects'] = int,
+_ALL_IMAGE_FIELDS['smoothness_fwhm'] = float,
+_ALL_IMAGE_FIELDS['statistic_parameters'] = float,
+_ALL_IMAGE_FIELDS['thumbnail'] = str,
+_ALL_IMAGE_FIELDS['type'] = str,
+
+_ALL_IMAGE_FIELDS_SQL = _translate_types_to_sql(_ALL_IMAGE_FIELDS)
+
+_ALL_COLLECTION_FIELDS = copy(_COLLECTION_BASIC_FIELDS)
+_ALL_COLLECTION_FIELDS['acquisition_orientation'] = str,
+_ALL_COLLECTION_FIELDS['authors'] = str,
+_ALL_COLLECTION_FIELDS['autocorrelation_model'] = str,
+_ALL_COLLECTION_FIELDS['b0_unwarping_software'] = str,
+_ALL_COLLECTION_FIELDS['coordinate_space'] = str,
+_ALL_COLLECTION_FIELDS['description'] = str,
+_ALL_COLLECTION_FIELDS['doi_add_date'] = str,
+_ALL_COLLECTION_FIELDS['echo_time'] = float,
+_ALL_COLLECTION_FIELDS['field_of_view'] = float,
+_ALL_COLLECTION_FIELDS['field_strength'] = float,
+_ALL_COLLECTION_FIELDS['flip_angle'] = float,
+_ALL_COLLECTION_FIELDS['full_dataset_url'] = str,
+_ALL_COLLECTION_FIELDS['functional_coregistered_to_structural'] = bool,
+_ALL_COLLECTION_FIELDS['functional_coregistration_method'] = str,
+_ALL_COLLECTION_FIELDS['group_comparison'] = bool,
+_ALL_COLLECTION_FIELDS['group_description'] = str,
+_ALL_COLLECTION_FIELDS['group_estimation_type'] = str,
+_ALL_COLLECTION_FIELDS['group_inference_type'] = str,
+_ALL_COLLECTION_FIELDS['group_model_multilevel'] = str,
+_ALL_COLLECTION_FIELDS['group_model_type'] = str,
+_ALL_COLLECTION_FIELDS['group_modeling_software'] = str,
+_ALL_COLLECTION_FIELDS['group_repeated_measures'] = bool,
+_ALL_COLLECTION_FIELDS['group_repeated_measures_method'] = str,
+_ALL_COLLECTION_FIELDS['handedness'] = str,
+_ALL_COLLECTION_FIELDS['hemodynamic_response_function'] = str,
+_ALL_COLLECTION_FIELDS['high_pass_filter_method'] = str,
+_ALL_COLLECTION_FIELDS['inclusion_exclusion_criteria'] = str,
+_ALL_COLLECTION_FIELDS['interpolation_method'] = str,
+_ALL_COLLECTION_FIELDS['intersubject_registration_software'] = str,
+_ALL_COLLECTION_FIELDS['intersubject_transformation_type'] = str,
+_ALL_COLLECTION_FIELDS['intrasubject_estimation_type'] = str,
+_ALL_COLLECTION_FIELDS['intrasubject_model_type'] = str,
+_ALL_COLLECTION_FIELDS['intrasubject_modeling_software'] = str,
+_ALL_COLLECTION_FIELDS['journal_name'] = str,
+_ALL_COLLECTION_FIELDS['length_of_blocks'] = float,
+_ALL_COLLECTION_FIELDS['length_of_runs'] = float,
+_ALL_COLLECTION_FIELDS['length_of_trials'] = str,
+_ALL_COLLECTION_FIELDS['matrix_size'] = int,
+_ALL_COLLECTION_FIELDS['motion_correction_interpolation'] = str,
+_ALL_COLLECTION_FIELDS['motion_correction_metric'] = str,
+_ALL_COLLECTION_FIELDS['motion_correction_reference'] = str,
+_ALL_COLLECTION_FIELDS['motion_correction_software'] = str,
+_ALL_COLLECTION_FIELDS['nonlinear_transform_type'] = str,
+_ALL_COLLECTION_FIELDS['number_of_experimental_units'] = int,
+_ALL_COLLECTION_FIELDS['number_of_imaging_runs'] = int,
+_ALL_COLLECTION_FIELDS['number_of_rejected_subjects'] = int,
+_ALL_COLLECTION_FIELDS['object_image_type'] = str,
+_ALL_COLLECTION_FIELDS['optimization'] = bool,
+_ALL_COLLECTION_FIELDS['optimization_method'] = str,
+_ALL_COLLECTION_FIELDS['order_of_acquisition'] = str,
+_ALL_COLLECTION_FIELDS['order_of_preprocessing_operations'] = str,
+_ALL_COLLECTION_FIELDS['orthogonalization_description'] = str,
+_ALL_COLLECTION_FIELDS['paper_url'] = str,
+_ALL_COLLECTION_FIELDS['parallel_imaging'] = str,
+_ALL_COLLECTION_FIELDS['proportion_male_subjects'] = float,
+_ALL_COLLECTION_FIELDS['pulse_sequence'] = str,
+_ALL_COLLECTION_FIELDS['quality_control'] = str,
+_ALL_COLLECTION_FIELDS['repetition_time'] = float,
+_ALL_COLLECTION_FIELDS['resampled_voxel_size'] = float,
+_ALL_COLLECTION_FIELDS['scanner_make'] = str,
+_ALL_COLLECTION_FIELDS['scanner_model'] = str,
+_ALL_COLLECTION_FIELDS['skip_distance'] = float,
+_ALL_COLLECTION_FIELDS['slice_thickness'] = float,
+_ALL_COLLECTION_FIELDS['slice_timing_correction_software'] = str,
+_ALL_COLLECTION_FIELDS['smoothing_fwhm'] = float,
+_ALL_COLLECTION_FIELDS['smoothing_type'] = str,
+_ALL_COLLECTION_FIELDS['software_package'] = str,
+_ALL_COLLECTION_FIELDS['software_version'] = str,
+_ALL_COLLECTION_FIELDS['subject_age_max'] = float,
+_ALL_COLLECTION_FIELDS['subject_age_mean'] = float,
+_ALL_COLLECTION_FIELDS['subject_age_min'] = float,
+_ALL_COLLECTION_FIELDS['target_resolution'] = float,
+_ALL_COLLECTION_FIELDS['target_template_image'] = str,
+_ALL_COLLECTION_FIELDS['transform_similarity_metric'] = str,
+_ALL_COLLECTION_FIELDS['type_of_design'] = str,
+_ALL_COLLECTION_FIELDS['used_b0_unwarping'] = bool,
+_ALL_COLLECTION_FIELDS['used_dispersion_derivatives'] = bool,
+_ALL_COLLECTION_FIELDS['used_high_pass_filter'] = bool,
+_ALL_COLLECTION_FIELDS['used_intersubject_registration'] = bool,
+_ALL_COLLECTION_FIELDS['used_motion_correction'] = bool,
+_ALL_COLLECTION_FIELDS['used_motion_regressors'] = bool,
+_ALL_COLLECTION_FIELDS['used_motion_susceptibiity_correction'] = bool,
+_ALL_COLLECTION_FIELDS['used_orthogonalization'] = bool,
+_ALL_COLLECTION_FIELDS['used_reaction_time_regressor'] = bool,
+_ALL_COLLECTION_FIELDS['used_slice_timing_correction'] = bool,
+_ALL_COLLECTION_FIELDS['used_smoothing'] = bool,
+_ALL_COLLECTION_FIELDS['used_temporal_derivatives'] = bool
+
+_ALL_COLLECTION_FIELDS_SQL = _translate_types_to_sql(_ALL_COLLECTION_FIELDS)
 
 
 def prepare_logging(level=logging.DEBUG):
@@ -49,33 +324,13 @@ def prepare_logging(level=logging.DEBUG):
 _logger = prepare_logging()
 
 
-def _neurovault_base_url():
-    return 'http://neurovault.org/api/'
-
-
-def _neurovault_collections_url():
-    return urljoin(_neurovault_base_url(), 'collections/')
-
-
-def _neurovault_images_url():
-    return urljoin(_neurovault_base_url(), 'images/')
-
-
-def _neurosynth_fetch_words_url():
-    return 'http://neurosynth.org/api/v2/decode/'
-
-
 def _append_filters_to_query(query, filters):
-    """encode dict or sequence of key-value pairs into an URL query string"""
+    """encode dict or sequence of key-value pairs into a URL query string"""
     if not filters:
         return query
     new_query = urljoin(
         query, urlencode(filters))
     return new_query
-
-
-def _default_batch_size():
-    return 100
 
 
 def _empty_filter(arg):
@@ -84,14 +339,16 @@ def _empty_filter(arg):
 
 def _get_encoding(resp):
     """Get the encoding of an HTTP response."""
-    encoding = None
     try:
-        encoding = resp.headers.get_content_charset()
+        return resp.headers.get_content_charset()
     except AttributeError as e:
         pass
-    content_type = resp.headers.get('Content-Type')
-    encoding = re.search(r'charset=\b(.+)\b', content_type).group(1)
-    return encoding
+    content_type = resp.headers.get('Content-Type', '')
+    match = re.search(r'charset=\b(.+)\b', content_type)
+    if match is None:
+        return None
+    return match.group(1)
+
 
 def _get_batch(query, prefix_msg=''):
     """Given a query, get the response and transform json to python dict.
@@ -167,7 +424,7 @@ def _scroll_server_results(url, local_filter=_empty_filter,
     batch_size: int or None, optional (default=None)
     Neurovault returns the metadata for hits corresponding to a query
     in batches. batch_size is used to choose the (maximum) number of
-    elements in a batch. If None, _default_batch_size() is used.
+    elements in a batch. If None, _DEFAULT_BATCH_SIZE is used.
 
     prefix_msg: str, optional (default='')
     Prefix for all log messages.
@@ -175,7 +432,7 @@ def _scroll_server_results(url, local_filter=_empty_filter,
     """
     query = _append_filters_to_query(url, query_terms)
     if batch_size is None:
-        batch_size = _default_batch_size()
+        batch_size = _DEFAULT_BATCH_SIZE
     query = '{}?limit={}&offset={{}}'.format(query, batch_size)
     downloaded = 0
     n_available = None
@@ -288,7 +545,8 @@ class ResultFilter(object):
     Called with a dict representing metadata, returns True if it satisfies
     the requirements expressed by the filter and False otherwise.
 
-    __or__, __and__, __xor__, __not__, and the correspondig reflected operators:
+    __or__, __and__, __xor__, __not__,
+    and the correspondig reflected operators:
     Used to combine ResultFilter objects.
     Example: metadata will pass through filt1 | filt2 if and only if
     it passes through filt1 or through filt2.
@@ -308,7 +566,8 @@ class ResultFilter(object):
     """
     not_null = NotNull()
 
-    def __init__(self, query_terms={}, callable_filter=_empty_filter, **kwargs):
+    def __init__(self, query_terms={},
+                 callable_filter=_empty_filter, **kwargs):
         """Construct a ResultFilter
 
         Parameters
@@ -397,7 +656,7 @@ class ResultFilter(object):
         if item in self.query_terms_:
             del self.query_terms_[item]
 
-    def add_filter(callable_filter):
+    def add_filter(self, callable_filter):
         """Add a function to the callable_filters_.
 
         After a call add_filter(additional_filt), in addition
@@ -420,24 +679,52 @@ def _simple_download(url, target_file, temp_dir):
     return target_file
 
 
-def _checked_get_dataset_dir(dataset_name, suggested_dir=None):
+# TODO: look for a writable dataset from the start -> PR or rewrite here?
+def _checked_get_dataset_dir(dataset_name, suggested_dir=None,
+                             write_required=False):
     """Wrapper for _get_dataset_dir; expands . and ~ and checks write access"""
     if suggested_dir is not None:
         suggested_dir = os.path.abspath(os.path.expanduser(suggested_dir))
     dataset_dir = _get_dataset_dir(dataset_name, data_dir=suggested_dir)
+    if not write_required:
+        return dataset_dir
     if not os.access(dataset_dir, os.W_OK):
         raise IOError('Permission denied: {}'.format(dataset_dir))
     return dataset_dir
+
+
+def neurovault_directory(suggested_path=None):
+    """Return path to neurovault directory on filesystem."""
+    try:
+        return neurovault_directory.directory_path_
+    except AttributeError as e:
+        neurovault_directory.directory_path_ = _checked_get_dataset_dir(
+            'neurovault', suggested_path)
+    return neurovault_directory.directory_path_
+
+
+def set_neurovault_directory(new_dir):
+    """Set the default neurovault directory to a new location."""
+    try:
+        del neurovault_directory.directory_path_
+    except Exception as e:
+        pass
+    return neurovault_directory(new_dir)
+
+
+def neurovault_metadata_db_path(**kwargs):
+    return os.path.join(neurovault_directory(**kwargs),
+                        '.neurovault_metadata.db')
 
 
 def _get_temp_dir(suggested_dir=None):
     """Get a sandbox dir in which to download files."""
     if suggested_dir is not None:
         suggested_dir = os.path.abspath(os.path.expanduser(suggested_dir))
-    if suggested_dir is None or not os.path.isdir(suggested_dir):
+    if (suggested_dir is None or
+        not os.path.isdir(suggested_dir) or
+        not os.access(suggested_dir, os.W_OK)):
         suggested_dir = mkdtemp()
-    if not os.access(suggested_dir, os.W_OK):
-        raise IOError('Permission denied: {}'.format(suggested_dir))
     return suggested_dir
 
 
@@ -456,7 +743,7 @@ def _fetch_neurosynth_words(image_id, target_file, temp_dir):
     temp_dir: str
     Path to directory used by _simple_download.
     """
-    query = urljoin(_neurosynth_fetch_words_url(),
+    query = urljoin(_NEUROSYNTH_FETCH_WORDS_URL,
                     '?neurovault={}'.format(image_id))
     _simple_download(query, target_file, temp_dir)
 
@@ -503,8 +790,7 @@ class BaseDownloadManager(object):
 
     """
     def __init__(self, neurovault_data_dir=None, max_images=100):
-        self.nv_data_dir_ = _checked_get_dataset_dir(
-            'neurovault', neurovault_data_dir)
+        self.nv_data_dir_ = neurovault_directory(neurovault_data_dir)
         if max_images is not None and max_images < 0:
             max_images = None
         self.max_images_ = max_images
@@ -518,7 +804,8 @@ class BaseDownloadManager(object):
         if self.already_downloaded_ == self.max_images_:
             raise StopIteration()
         image_info = self._image_hook(image_info)
-        self.already_downloaded_ += 1
+        if image_info is not None:
+            self.already_downloaded_ += 1
         return image_info
 
     def _collection_hook(self, collection_info):
@@ -528,6 +815,15 @@ class BaseDownloadManager(object):
     def _image_hook(self, image_info):
         """Hook for subclasses."""
         return image_info
+
+    def start(self):
+        pass
+
+    def finish(slef):
+        pass
+
+    def write_ok(self):
+        return os.access(self.nv_data_dir_, os.W_OK)
 
 
 class DownloadManager(BaseDownloadManager):
@@ -685,7 +981,8 @@ class DownloadManager(BaseDownloadManager):
                 collection_dir, 'image_{}_reduced_rep.npy'.format(image_id))
             _simple_download(
                 reduced_image_url, reduced_image_file, self.temp_dir_)
-            image_info['reduced_representation_local_path'] = reduced_image_file
+            image_info[
+                'reduced_representation_local_path'] = reduced_image_file
         if self.fetch_ns_:
             ns_words_file = os.path.join(
                 self.ns_data_dir_, 'words_for_image_{}.json'.format(image_id))
@@ -701,6 +998,56 @@ class DownloadManager(BaseDownloadManager):
         return image_info
 
 
+class SQLiteDownloadManager(DownloadManager):
+
+    def __init__(self, image_fields=_IMAGE_BASIC_FIELDS_SQL.keys(),
+                 collection_fields=_COLLECTION_BASIC_FIELDS_SQL.keys(),
+                 **kwargs):
+        super(SQLiteDownloadManager, self).__init__(**kwargs)
+        self.db_file_ = neurovault_metadata_db_path()
+        self.im_fields_ = _filter_field_names(image_fields,
+                                              _ALL_IMAGE_FIELDS_SQL)
+        self.col_fields_ = _filter_field_names(collection_fields,
+                                               _ALL_COLLECTION_FIELDS_SQL)
+        self.im_insert_ = _get_insert_string('images', self.im_fields_)
+        self.col_insert_ = _get_insert_string('collections', self.col_fields_)
+        self.im_update_ = _get_update_string('images', self.im_fields_)
+        self.col_update_ = _get_update_string('colages', self.col_fields_)
+
+    def _collection_hook(self, collection_info):
+        collection_info = super(SQLiteDownloadManager, self)._collection_hook(
+            collection_info)
+        values = [collection_info.get(field) for field in self.col_fields_]
+        try:
+            self.cursor_.execute(self.col_insert_, values)
+        except sqlite3.IntegrityError:
+            self.cursor_.execute(self.col_update_, values)
+        return collection_info
+
+    def _image_hook(self, image_info):
+        image_info = super(SQLiteDownloadManager, self)._image_hook(
+            image_info)
+        values = [image_info.get(field) for field in self.im_fields_]
+        try:
+            self.cursor_.execute(self.im_insert_, values)
+        except sqlite3.IntegrityError:
+            self.cursor_.execute(self.im_update_, values)
+        return image_info
+
+    def start(self):
+        self.connection_ = sqlite3.connect(self.db_file_)
+        self.connection_.row_factory = sqlite3.Row
+        self.cursor_ = self.connection_.cursor()
+        if not _nv_schema_exists(self.cursor_):
+            self.cursor_ = _create_schema(
+                self.cursor_, self.im_fields_, self.col_fields_)
+
+    def finish(self):
+        print('finished')
+        self.connection_.commit()
+        self.connection_.close()
+
+
 # TODO: finish docstring.
 def _scroll_server_data(collection_query_terms={},
                         collection_local_filter=_empty_filter,
@@ -711,8 +1058,9 @@ def _scroll_server_data(collection_query_terms={},
     """Return a generator iterating over neurovault.org results for a query."""
     if download_manager is None:
         download_manager = BaseDownloadManager(max_images=max_images)
+    download_manager.start()
 
-    collections = _scroll_server_results(_neurovault_collections_url(),
+    collections = _scroll_server_results(_NEUROVAULT_COLLECTIONS_URL,
                                          query_terms=collection_query_terms,
                                          local_filter=collection_local_filter,
                                          prefix_msg='scroll collections: ',
@@ -723,6 +1071,7 @@ def _scroll_server_data(collection_query_terms={},
             collection = download_manager.collection(collection)
         except Exception as e:
             if isinstance(e, StopIteration):
+                download_manager.finish()
                 raise
             _logger.exception('_scroll_server_data: bad collection: {}'.format(
                 collection))
@@ -730,7 +1079,7 @@ def _scroll_server_data(collection_query_terms={},
 
         if not bad_collection:
             n_im_in_collection = 0
-            query = urljoin(_neurovault_collections_url(),
+            query = urljoin(_NEUROVAULT_COLLECTIONS_URL,
                             '{}/images/'.format(collection['id']))
             images = _scroll_server_results(
                 query, query_terms=image_query_terms,
@@ -745,6 +1094,7 @@ def _scroll_server_data(collection_query_terms={},
                     n_im_in_collection += 1
                 except Exception as e:
                     if isinstance(e, StopIteration):
+                        download_manager.finish()
                         raise
                     _logger.exception(
                         '_scroll_server_data: bad image: {}'.format(image))
@@ -753,6 +1103,8 @@ def _scroll_server_data(collection_query_terms={},
                 '{} image{} matched query in collection {}'.format(
                     (n_im_in_collection if n_im_in_collection else 'no'),
                     ('s' if n_im_in_collection > 1 else ''), collection['id']))
+
+    download_manager.finish()
 
 
 def _json_from_file(filename):
@@ -781,7 +1133,7 @@ def _scroll_local_data(neurovault_dir,
                        collection_filter=_empty_filter,
                        image_filter=_empty_filter,
                        max_images=None):
-    """Get a generator iterating over local neurovault data matching a query."""
+    """Get an iterator over local neurovault data matching a query."""
     if max_images is not None and max_images < 0:
         max_images = None
     found_images = 0
@@ -790,7 +1142,7 @@ def _scroll_local_data(neurovault_dir,
         os.path.join(neurovault_dir, '*', 'collection_metadata.json'))
 
     for collection in filter(collection_filter,
-                             map (_json_add_local_dir, collections)):
+                             map(_json_add_local_dir, collections)):
         images = glob(os.path.join(
             collection['local_path'], 'image_*_metadata.json'))
         # for compatibility with previous PR
@@ -807,25 +1159,26 @@ def _split_terms(terms, available_on_server):
     """Isolate term filters that can be applied by server."""
     terms_ = dict(terms)
     server_terms = {k: terms_.pop(k) for
-                      k in available_on_server.intersection(terms_.keys())}
+                    k in available_on_server.intersection(terms_.keys())}
     return terms_, server_terms
 
 
 def _move_unknown_terms_to_local_filter(terms, local_filter,
-                                            available_on_server):
+                                        available_on_server):
     """Move filters handled by the server inside url."""
     local_terms, server_terms = _split_terms(terms, available_on_server)
     local_filter = local_filter & ResultFilter(query_terms=local_terms)
     return server_terms, local_filter
 
 
-def _prepare_local_scroller(neurovault_dir, collection_terms, collection_filter,
-                            image_terms, image_filter, max_images):
+def _prepare_local_scroller(neurovault_dir, collection_terms,
+                            collection_filter, image_terms,
+                            image_filter, max_images):
     """Construct filters for call to _scroll_local_data."""
-    collection_local_filter = (collection_filter
-                               & ResultFilter(**collection_terms))
-    image_local_filter = (image_filter
-                          & ResultFilter(**image_terms))
+    collection_local_filter = (collection_filter &
+                               ResultFilter(**collection_terms))
+    image_local_filter = (image_filter &
+                          ResultFilter(**image_terms))
     local_data = _scroll_local_data(
         neurovault_dir, collection_filter=collection_local_filter,
         image_filter=image_local_filter, max_images=max_images)
@@ -858,25 +1211,27 @@ def _prepare_remote_scroller(collection_terms, collection_filter,
 
     if max_images is not None:
         max_images = max(0, max_images - len(image_ids))
-    server_data = _scroll_server_data(collection_query_terms=collection_terms,
-                                      collection_local_filter=collection_filter,
-                                      image_query_terms=image_terms,
-                                      image_local_filter=image_filter,
-                                      download_manager=download_manager,
-                                      max_images=max_images)
+    server_data = _scroll_server_data(
+        collection_query_terms=collection_terms,
+        collection_local_filter=collection_filter,
+        image_query_terms=image_terms,
+        image_local_filter=image_filter,
+        download_manager=download_manager,
+        max_images=max_images)
     return server_data
 
 
 # TODO: finish docstring
 def _join_local_and_remote(neurovault_dir, mode='download_new',
-                           collection_terms={}, collection_filter=_empty_filter,
+                           collection_terms={},
+                           collection_filter=_empty_filter,
                            image_terms={}, image_filter=_empty_filter,
                            download_manager=None, max_images=None):
-    """Iterate over results found on disk, then those found on neurovault.org"""
+    """Iterate over results from disk, then those found on neurovault.org"""
     if mode not in ['overwrite', 'download_new', 'offline']:
         raise ValueError(
             'supported modes are overwrite,'
-            ' download_new, offline, got {}'.format(mode))
+            ' download_new, offline; got {}'.format(mode))
 
     if mode == 'overwrite':
         local_data = tuple()
@@ -891,9 +1246,9 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
         collection_ids.add(collection['id'])
         yield image, collection
 
-    if  mode == 'offline':
+    if mode == 'offline':
         return
-    if max_images is not None and len(image_ids) >= max_images :
+    if max_images is not None and len(image_ids) >= max_images:
         return
 
     server_data = _prepare_remote_scroller(collection_terms, collection_filter,
@@ -913,6 +1268,7 @@ def default_image_terms():
     """Return a filter that selects valid, thresholded images in mni space"""
     return {'not_mni': False, 'is_valid': True, 'is_thresholded': False}
 
+
 # TODO: finish docstring
 def fetch_neurovault(max_images=None,
                      collection_terms=default_collection_terms(),
@@ -926,15 +1282,22 @@ def fetch_neurovault(max_images=None,
     """Download data from neurovault.org and neurosynth.org."""
     image_terms = dict(image_terms, **kwargs)
 
-    if download_manager is None:
-        download_manager = DownloadManager(
+    neurovault_data_dir = neurovault_directory(neurovault_data_dir)
+    if mode != 'offline' and not os.access(neurovault_data_dir, os.W_OK):
+        warnings.warn("You don't have write access to neurovault dir: {};"
+                      "fetch_neurovault is working offline.".format(
+                          neurovault_data_dir))
+        mode = 'offline'
+
+    if download_manager is None and mode != 'offline':
+        download_manager = SQLiteDownloadManager(
             max_images=max_images,
             neurovault_data_dir=neurovault_data_dir,
             fetch_neurosynth_words=fetch_neurosynth_words,
             neurosynth_data_dir=neurosynth_data_dir)
 
     scroller = _join_local_and_remote(
-        neurovault_dir=download_manager.nv_data_dir_,
+        neurovault_dir=neurovault_data_dir,
         mode=mode,
         collection_terms=collection_terms,
         collection_filter=collection_filter,
@@ -948,31 +1311,218 @@ def fetch_neurovault(max_images=None,
         return None
     images_meta, collections_meta = zip(*scroller)
     images = [im_meta.get('local_path') for im_meta in images_meta]
-    return {'images': images,
-            'images_meta': images_meta,
-            'collections_meta': collections_meta}
+    return Bunch(images=images,
+                 images_meta=images_meta,
+                 collections_meta=collections_meta)
 
 
-def _get_neurovault_keys():
-    """Return keys found in Neurovault collection and image metadata."""
+def _update_metadata_info(collected_info, new_instance):
+    """Update a dict of {field: type, #times filled} with new metadata."""
+    for k, v in new_instance.items():
+        prev_type, prev_nb = collected_info.get(k, (None, 0))
+        new_nb = prev_nb + (v is not None)
+        new_type = prev_type if v is None else type(v)
+        collected_info[k] = new_type, new_nb
+    return collected_info
+
+
+def _get_all_neurovault_keys(max_images=None):
+    """Get info about the metadata fields in Neurovault
+
+    Parameters
+    ----------
+    max_images: int, optional (default=None)
+    stop after seeing metadata for max_images images.
+    If None, read metadata for all images and collections.
+
+    Returns
+    -------
+    meta: tuple(dict, dict)
+    The first element contains info about image metadata fields,
+    the second element about collection metadata fields.
+    The image metadata (resp. collection metadata) dict contains '
+    ' pairs of the form:
+    field_name: (type, number of images (resp. collections) '
+    'for which this field is filled)
+
+    """
     try:
-        meta = _get_neurovault_keys.meta_
+        meta = _get_all_neurovault_keys.meta_
     except AttributeError as e:
         meta = None
     if meta is None:
-        meta = fetch_neurovault(
-            max_images=1, download_manager=BaseDownloadManager(max_images=1))
+        im_keys = {}
+        coll_keys = {}
+        seen_colls = set()
+        for im, coll in _join_local_and_remote(
+                neurovault_dir=neurovault_directory(), max_images=max_images):
+            _update_metadata_info(im_keys, im)
+            if coll['id'] not in seen_colls:
+                seen_colls.add(coll['id'])
+                _update_metadata_info(coll_keys, coll)
+        meta = im_keys, coll_keys
+        _get_all_neurovault_keys.meta_ = meta
+    return meta
 
-    return [{k: (object if v is None else type(v)) for
-             k, v in meta[doc_type][0].items()} for
-            doc_type in ('images_meta', 'collections_meta')]
+
+def show_neurovault_image_keys(max_images=300):
+    """Display keys found in Neurovault metadata for images."""
+    pprint(_get_all_neurovault_keys(max_images)[0])
 
 
-def show_neurovault_image_keys():
-    """Display keys found in Neurovault metadata for an image."""
-    pprint(_get_neurovault_keys()[0])
+def show_neurovault_collection_keys(max_images=300):
+    """Display keys found in Neurovault metadata for collections."""
+    pprint(_get_all_neurovault_keys(max_images)[1])
 
 
-def show_neurovault_collection_keys():
-    """Display keys found in Neurovault metadata for a collection."""
-    pprint(_get_neurovault_keys()[1])
+def _which_keys_are_unused(max_images=None):
+    im_keys, coll_keys = _get_all_neurovault_keys(max_images)
+    im_unused, coll_unused = set(), set()
+    for k, v in im_keys.items():
+        if v[0] is None:
+            im_unused.add(k)
+    for k, v in coll_keys.items():
+        if v[0] is None:
+            coll_unused.add(k)
+    return im_unused, coll_unused
+
+
+def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
+                           fontsize='x-large', **kwargs):
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.gca()
+    width = .8
+    name_freq = [(name, info[1]) for (name, info) in keys.items()]
+    name, freq = zip(*name_freq)
+    name = np.asarray(name)
+    freq = np.asarray(freq)
+    order = np.argsort(freq)
+    ax.bar(range(len(name)), freq[order][::-1], width)
+    ax.set_xticks(np.arange(len(name)) + width / 2)
+    ax.set_xticklabels(name[order][::-1], rotation=txt_rotation,
+                       fontsize=fontsize, **kwargs)
+
+
+def _prepare_subplots_fields_occurrences():
+    gs_im = GridSpec(1, 1, bottom=.65, top=.95)
+    gs_col = GridSpec(1, 1, bottom=.2, top=.5)
+    ax_im = plt.subplot(gs_im[:])
+    ax_im.set_title('image fields')
+    ax_col = plt.subplot(gs_col[:])
+    ax_col.set_title('column fields', fontsize='xx-large')
+    return ax_im, ax_col
+
+
+def plot_fields_occurrences(max_images=300, **kwargs):
+    all_keys = _get_all_neurovault_keys(max_images)
+    axis_arr = _prepare_subplots_fields_occurrences()
+    for table, ax in zip(all_keys, axis_arr):
+        _fields_occurences_bar(table, ax=ax, **kwargs)
+
+
+def _filter_field_names(required_fields, ref_fields):
+    filtered = OrderedDict()
+    for field_name in required_fields:
+        if field_name in ref_fields:
+            filtered[field_name] = ref_fields[field_name]
+        else:
+            _logger.warning(
+                'rejecting unknown column name: {}'.format(field_name))
+    return filtered
+
+
+def _get_columns_string(required_fields, ref_fields):
+    fields = ['{} {}'.format(n, v) for
+              n, v in _filter_field_names(required_fields, ref_fields).items()]
+    return ', '.join(fields)
+
+
+def _get_insert_string(table_name, fields):
+    return "INSERT INTO {} ({}) VALUES ({})".format(
+        table_name,
+        ', '.join(fields),
+        ('?, ' * len(fields))[:-2])
+
+
+def _get_update_string(table_name, fields):
+    set_str = ','.join(["{}=:{}".format(field, field) for field in fields])
+    return "UPDATE {} SET {} WHERE id=:id".format(table_name, set_str)
+
+
+def _table_exists(cursor, table_name):
+    cursor.execute("SELECT * FROM sqlite_master WHERE name=?", (table_name,))
+    return bool(cursor.fetchall())
+
+
+def local_database_connection():
+    try:
+        return local_database_connection.connection_
+    except AttributeError:
+        pass
+    db_path = neurovault_metadata_db_path()
+    local_database_connection.connection_ = sqlite3.connect(db_path)
+    local_database_connection.connection_.row_factory = sqlite3.Row
+    return local_database_connection.connection_
+
+
+def local_database_cursor():
+    return local_database_connection().cursor()
+
+
+@atexit.register
+def close_database_connection():
+    try:
+        local_database_connection.connection_.commit()
+        local_database_connection.connection_.close()
+        _logger.info(
+            'committed changes to local database and closed connection')
+    except (AttributeError, sqlite3.ProgrammingError):
+        pass
+    except Exception as e:
+        _logger.exception()
+
+
+def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
+                   col_fields=_COLLECTION_BASIC_FIELDS):
+    im_fields = copy(im_fields)
+    col_fields = copy(col_fields)
+    im_fields.pop('id', None)
+    im_fields.pop('collection_id', None)
+    col_fields.pop('id', None)
+    im_columns = _get_columns_string(im_fields, _ALL_IMAGE_FIELDS_SQL)
+    if(im_columns):
+        im_columns = ', ' + im_columns
+    col_columns = _get_columns_string(col_fields, _ALL_COLLECTION_FIELDS_SQL)
+    if(col_columns):
+        col_columns = ', ' + col_columns
+    im_command = ('CREATE TABLE images '
+                  '(id INTEGER PRIMARY KEY, collection_id INTEGER'
+                  '{}, FOREIGN KEY(collection_id) '
+                  'REFERENCES collections(id))'.format(im_columns))
+    col_command = ('CREATE TABLE collections '
+                   '(id INTEGER PRIMARY KEY{})'.format(col_columns))
+    cursor = cursor.execute(col_command)
+    cursor = cursor.execute(im_command)
+    cursor.connection.commit()
+    return cursor
+
+
+def _nv_schema_exists(cursor):
+    return (_table_exists(cursor, 'images') and
+            _table_exists(cursor, 'collections'))
+
+
+def table_info(cursor, table_name):
+    cursor.execute("SELECT sql FROM sqlite_master "
+                   "WHERE tbl_name=? AND type='table'", (table_name,))
+    table_statement = cursor.fetchone()[0]
+    m = re.match(r'CREATE TABLE {} ?\((.*)\)'.format(table_name),
+                 table_statement, re.IGNORECASE)
+    if not m:
+        _logger.error('table_info: could not find column names '
+                      'for table {}'.format(table_name))
+        return None
+    info = m.group(1)
+    columns = re.match(r'(.*?)(, FOREIGN.*)?$', info).group(1)
+    return info, [pair.split() for pair in columns.split(',')]
