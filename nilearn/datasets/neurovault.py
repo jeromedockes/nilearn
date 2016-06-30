@@ -1385,6 +1385,7 @@ class SQLiteDownloadManager(DownloadManager):
         return self._add_to_collections(collection_info)
 
     def start(self):
+        super(SQLiteDownloadManager, self).start()
         _logger.debug('starting download manager')
         self.connection_ = local_database_connection()
         self.cursor_ = local_database_cursor()
@@ -1421,6 +1422,7 @@ class SQLiteDownloadManager(DownloadManager):
         return
 
     def finish(self):
+        super(SQLiteDownloadManager, self).finish()
         if self.connection_ is None:
             return
         close_database_connection(_logger.debug)
