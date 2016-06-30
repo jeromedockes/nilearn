@@ -21,6 +21,7 @@ from sklearn.feature_extraction import DictVectorizer
 from .utils import _fetch_file, _get_dataset_dir
 from .._utils.compat import _urllib
 urljoin, urlencode = _urllib.parse.urljoin, _urllib.parse.urlencode
+URLError = _urllib.error.URLError
 Request, build_opener = _urllib.request.Request, _urllib.request.build_opener
 
 
@@ -37,7 +38,7 @@ _IM_FILTERS_AVAILABLE_ON_SERVER = set()
 
 _DEFAULT_BATCH_SIZE = 100
 
-_PY_TO_SQL_TYPE = {int: 'INTEGER', float: 'REAL', str: 'TEXT'}
+_PY_TO_SQL_TYPE = {int: 'INTEGER', bool: 'INTEGER', float: 'REAL', str: 'TEXT'}
 
 _IMAGE_BASIC_FIELDS = OrderedDict()
 _IMAGE_BASIC_FIELDS['id'] = int
@@ -69,6 +70,25 @@ _IMAGE_BASIC_FIELDS['neurosynth_words_absolute_path'] = str
 
 
 def _translate_types_to_sql(fields_dict):
+    """Translate values of a mapping from python to SQL datatypes.
+
+    Given a dictionary which describes metadata fields by mapping
+    field names to python types, translate the values (the types) into
+    (string representations of) SQL datatypes.
+
+    Parameters
+    ----------
+    fields_dict : dict
+        Maps names of metadata fields to the type of value
+        they should contain.
+
+    Returns
+    -------
+    collections.OrderedDict
+        Maps names of metadata fields to the type of value
+        they should contain in an SQL table.
+
+    """
     sql_fields = OrderedDict()
     for k, v in fields_dict.items():
         sql_fields[k] = _PY_TO_SQL_TYPE.get(v, '')
@@ -296,19 +316,24 @@ _ALL_COLLECTION_FIELDS['used_temporal_derivatives'] = bool
 _ALL_COLLECTION_FIELDS_SQL = _translate_types_to_sql(_ALL_COLLECTION_FIELDS)
 
 
+class MaxImagesReached(StopIteration):
+    """Exception class to signify enough images have been fetched."""
+    pass
+
+
 def prepare_logging(level=logging.DEBUG):
     """Get the root logger and add a handler to it if it doesn't have any.
 
     Parameters
     ----------
-    level: int, optional (default=logging.DEBUG)
-    level of the handler that is added if none exist.
-    this handler streams output to the console.
+    level : int, optional (default=logging.DEBUG)
+        Level of the handler that is added if none exist.
+        this handler streams output to the console.
 
     Returns
     -------
-    logger: logging.RootLogger
-    the root logger.
+    logging.RootLogger
+        The root logger.
 
     """
     logger = logging.getLogger()
@@ -328,7 +353,26 @@ _logger = prepare_logging()
 
 
 def _append_filters_to_query(query, filters):
-    """encode dict or sequence of key-value pairs into a URL query string"""
+    """Encode dict or sequence of key-value pairs into a URL query string
+
+    Parameters
+    ----------
+    query : str
+        URL to which the filters should be appended
+
+    filters : dict or sequence of pairs
+        Filters to append to the URL.
+
+    Returns
+    -------
+    str
+        The query with filters appended to it.
+
+    See Also
+    --------
+    urllib.parse.urlencode
+
+    """
     if not filters:
         return query
     new_query = urljoin(
@@ -337,11 +381,29 @@ def _append_filters_to_query(query, filters):
 
 
 def _empty_filter(arg):
+    """Place holder for a filter which always returns True."""
     return True
 
 
 def _get_encoding(resp):
-    """Get the encoding of an HTTP response."""
+    """Get the encoding of an HTTP response.
+
+    Parameters
+    ----------
+    resp : http.client.HTTPResponse
+        Response whose encoding we want to find out.
+
+    Returns
+    -------
+    str
+        str representing the encoding, e.g. 'utf-8'.
+
+    Raises
+    ------
+    ValueError
+        If the response does not specify an encoding.
+
+    """
     try:
         return resp.headers.get_content_charset()
     except AttributeError as e:
@@ -349,28 +411,43 @@ def _get_encoding(resp):
     content_type = resp.headers.get('Content-Type', '')
     match = re.search(r'charset=\b(.+)\b', content_type)
     if match is None:
-        return None
+        raise ValueError(
+            'HTTP response encoding not found; headers: {}'.format(
+                resp.headers))
     return match.group(1)
 
 
 def _get_batch(query, prefix_msg=''):
-    """Given a query, get the response and transform json to python dict.
+    """Given an URL, get the HTTP response and transform it to python dict.
+
+    The URL is used to send an HTTP GET request and the response is
+    transformed into a dict.
 
     Parameters
     ----------
-    query: str
-    The url from which to get data.
+    query : str
+        The URL from which to get data.
 
-    prefix_msg: str, optional (default='')
-    Prefix for all log messages.
+    prefix_msg : str, optional (default='')
+        Prefix for all log messages.
 
     Returns
     -------
-    batch: dict or None
-    None if download failed, if encoding could not be understood,
-    if the response was not in json format or if it did not contain
-    one of the required keys 'results' and 'count'.
-    Python dict representing the response otherwise.
+    batch : dict
+        Python dict representing the response's content.
+
+    Raises
+    ------
+    urllib.error.URLError
+        If there was a problem opening the URL.
+
+    ValueError
+        If the response could not be decoded, or did not contain
+        'results' or 'count'.
+
+    Notes
+    -----
+    urllib.error.HTTPError is a subclass of URLError.
 
     """
     request = Request(query)
@@ -379,24 +456,25 @@ def _get_batch(query, prefix_msg=''):
         prefix_msg, query))
     try:
         resp = opener.open(request)
-        encoding = _get_encoding(resp)
-        content = resp.read()
-        resp.close()
-    except Exception as e:
-        resp.close()
+    except URLError as e:
         _logger.exception(
             'could not download batch from {}'.format(query))
-        return None
+        raise
     try:
+        encoding = _get_encoding(resp)
+        content = resp.read()
         batch = json.loads(content.decode(encoding))
-    except Exception as e:
+    except(URLError, ValueError) as e:
         _logger.exception('could not decypher batch from {}'.format(query))
-        return None
+        raise
+    finally:
+        resp.close()
     for key in ['results', 'count']:
         if batch.get(key) is None:
-            _logger.error('could not find required key "{}" '
-                          'in batch retrieved from {}'.format(key, query))
-            return None
+            msg = ('could not find required key "{}" '
+                   'in batch retrieved from {}'.format(key, query))
+            _logger.error(msg)
+            raise ValueError(msg)
 
     return batch
 
@@ -404,33 +482,43 @@ def _get_batch(query, prefix_msg=''):
 def _scroll_server_results(url, local_filter=_empty_filter,
                            query_terms=None, max_results=None,
                            batch_size=None, prefix_msg=''):
-    """download list of metadata from Neurovault
+    """Download list of metadata from Neurovault.
 
     Parameters
     ----------
-    url: str
-    the base url (without the filters) from which to get data
+    url : str
+        The base url (without the filters) from which to get data.
 
-    local_filter: callable, optional (default=_empty_filter)
-    Used to filter the results based on their metadata:
-    must return True is the result is to be kept and False otherwise.
-    Is called with the dict containing the metadata as sole argument.
+    local_filter : callable, optional (default=_empty_filter)
+        Used to filter the results based on their metadata:
+        must return True is the result is to be kept and False otherwise.
+        Is called with the dict containing the metadata as sole argument.
 
-    query_terms: dict or sequence of pairs or None, optional (default=None)
-    Key-value pairs to add to the base url in order to form query.
-    If None, nothing is added to the url.
+    query_terms : dict, sequence of pairs or None, optional (default=None)
+        Key-value pairs to add to the base url in order to form query.
+        If ``None``, nothing is added to the url.
 
     max_results: int or None, optional (default=None)
-    Maximum number of results to fetch; if None, all available data
-    that matches the query is fetched.
+        Maximum number of results to fetch; if ``None``, all available data
+        that matches the query is fetched.
 
     batch_size: int or None, optional (default=None)
-    Neurovault returns the metadata for hits corresponding to a query
-    in batches. batch_size is used to choose the (maximum) number of
-    elements in a batch. If None, _DEFAULT_BATCH_SIZE is used.
+        Neurovault returns the metadata for hits corresponding to a query
+        in batches. batch_size is used to choose the (maximum) number of
+        elements in a batch. If None, ``_DEFAULT_BATCH_SIZE`` is used.
 
     prefix_msg: str, optional (default='')
-    Prefix for all log messages.
+        Prefix for all log messages.
+
+    Yields
+    ------
+    result : dict
+        A result in the retrieved batch.
+
+    Raises
+    ------
+    URLError, ValueError
+        If a batch failed to be retrieved.
 
     """
     query = _append_filters_to_query(url, query_terms)
@@ -457,12 +545,9 @@ def _scroll_server_results(url, local_filter=_empty_filter,
 class NotNull(object):
     """Special value used to filter terms.
 
-    An instance of this class, as it is used by ResultFilter
-    objects, will always be equal to any non-zero value of any
-    type (by non-zero) we mean for which bool returns True.
-
-    Instances of this class are only meant to be used as values
-    in a query_terms parameter passed to a ResultFilter.
+    An instance of this class will always be equal to, and only to,
+    any non-zero value of any type (by non-zero we mean for which bool
+    returns True).
 
     """
     def __eq__(self, other):
@@ -471,42 +556,58 @@ class NotNull(object):
     def __req__(self, other):
         return self.__eq__(other)
 
-    def __neq__(self, other):
+    def __ne__(self, other):
         return not self.__eq__(other)
 
-    def __rneq__(self, other):
-        return self.__neq__(other)
+    def __rne__(self, other):
+        return self.__ne__(other)
 
 
 class NotEqual(object):
     """Special value used to filter terms.
 
-    An instance of this class is constructed with NotEqual(obj).
-    As it is used by ResultFilter objects, it will allways be equal
-    to any value for which obj == value is False.
+    An instance of this class is constructed with `NotEqual(obj)`. It
+    will allways be equal to, and only to, any value for which ``obj
+    == value`` is ``False``.
 
-    Instances of this class are only meant to be used as values
-    in a query_terms parameter passed to a ResultFilter.
+    Parameters
+    ----------
+    negated : object
+        The object from which a candidate should be different in order
+        to pass through the filter.
 
     """
     def __init__(self, negated):
-        """Be equal to any value which is not negated."""
         self.negated_ = negated
 
     def __eq__(self, other):
-        return self.negated_ != other
+        return not self.negated_ == other
 
     def __req__(self, other):
         return self.__eq__(other)
 
-    def __neq__(self, other):
+    def __ne__(self, other):
         return not self.__eq__(other)
 
-    def __rneq__(self, other):
-        return self.__neq__(other)
+    def __rne__(self, other):
+        return self.__ne__(other)
 
 
 class IsIn(object):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with
+    `IsIn(container)`. It will allways be equal to, and only to, any
+    value for which ``value in container`` is ``True``.
+
+    Parameters
+    ----------
+    accepted : container
+        By container we mean any type which exposes a __contains__
+        method. A value will pass through the filter if it is present
+        in `accepted`.
+
+    """
     def __init__(self, accepted):
         self.accepted_ = accepted
 
@@ -516,94 +617,67 @@ class IsIn(object):
     def __req__(self, other):
         return self.__eq__(other)
 
-    def __neq__(self, other):
+    def __ne__(self, other):
         return not self.__eq__(other)
 
-    def __rneq__(self, other):
-        return self.__neq__(other)
+    def __rne__(self, other):
+        return self.__ne__(other)
 
 
 class ResultFilter(object):
-    """Easily create callable (local) filters for fetch_neurovault.
 
-    Constructed from a mapping of key-value pairs (optional)
-    and a callable filter (also optional),
-    instances of this class are meant to be used as image_filter or
-    collection_filter parameters for fetch_neurovault.
+    """Easily create callable (local) filters for ``fetch_neurovault``.
 
-    Such filters can be combined using
-    the logical operators |, &,  ^, not,
-    with the usual semantics.
+    Constructed from a mapping of key-value pairs (optional) and a
+    callable filter (also optional), instances of this class are meant
+    to be used as ``image_filter`` or ``collection_filter`` parameters
+    for ``fetch_neurovault``.
 
-    Key-value pairs can be added by treating a ResultFilter as a
-    dictionary: after evaluating res_filter[key] = value, only
-    metadata such that metadata[key] == value will pass through the
+    Such filters can be combined using the logical operators ``|``,
+    ``&``, ``^``, ``not``, with the usual semantics.
+
+    Key-value pairs can be added by treating a ``ResultFilter`` as a
+    dictionary: after evaluating ``res_filter[key] = value``, only
+    metadata such that ``metadata[key] == value`` can pass through the
     filter.
+
+    Parameters
+    ----------
+
+    query_terms : dict, optional (default={})
+        a metadata dict will be blocked by the filter if it does not
+        respect ``metadata[key] == value`` for all ``key``, ``value``
+        pairs in `query_terms`.
+
+    callable_filter : callable, optional (default=_empty_filter)
+        a ``metadata`` dictionary will be blocked by the filter if
+        `callable_filter` does not return ``True`` for ``metadata``.
+
+    As an alternative to the `query_terms` dictionary parameter,
+    key, value pairs can be passed as keyword arguments.
 
     Attributes
     ----------
-    query_terms_: dict
-    In order to pass through the filter, metadata must verify
-    metadata[key] == value for each key, value pair in query_terms.
+    query_terms_ : dict
+        In order to pass through the filter, metadata must verify
+        ``metadata[key] == value`` for each ``key``, ``value`` pair in
+        `query_terms_`.
 
-    callable_filters_: list of callables
-    In addition to (key, value pairs), we can use this attribute to specify
-    more elaborate requirements. Called with a dict representing metadata for
-    an image or collection, each element of this list returns True if the
-    metadata should pass through the filter and False otherwise.
+    callable_filters_ : list of callables
+        In addition to ``(key, value)`` pairs, we can use this
+        attribute to specify more elaborate requirements. Called with
+        a dict representing metadata for an image or collection, each
+        element of this list returns ``True`` if the metadata should
+        pass through the filter and ``False`` otherwise.
 
-    A dict of metadata will only pass through the filter if it satisfies
-    all the query_terms AND all the elements of callable_filters_.
-
-    Methods
-    -------
-    __init__
-    Construct an instance from an initial mapping of key, value pairs
-    and an initial callable filter.
-
-    __call__
-    Called with a dict representing metadata, returns True if it satisfies
-    the requirements expressed by the filter and False otherwise.
-
-    __or__, __and__, __xor__, __not__,
-    and the correspondig reflected operators:
-    Used to combine ResultFilter objects.
-    Example: metadata will pass through filt1 | filt2 if and only if
-    it passes through filt1 or through filt2.
-
-    __getitem__, __setitem__, __delitem__:
-    These calls are dispatched to query_terms_. Used to evaluate, add or
-    remove elements from the 'key must be value' filters expressed
-    in query_terms.
-
-    add_filter:
-    Add a callable filter to callable_filters_.
-
-    Returns
-    -------
-    None
+    A dict of metadata will only pass through the filter if it
+    satisfies all the `query_terms` AND all the elements of
+    `callable_filters_`.
 
     """
-    not_null = NotNull()
 
     def __init__(self, query_terms={},
                  callable_filter=_empty_filter, **kwargs):
-        """Construct a ResultFilter
-
-        Parameters
-        ----------
-        query_terms: dict, optional (default={})
-        a metadata dict will be blocked by the filter if it does not respect
-        metadata[key] == value for all key, value pairs in query_terms.
-
-        callable_filter: callable, optional (default=_empty_filter)
-        a metadata dict will be blocked by the filter if it does not respect
-        callable_filter(metadata) == True.
-
-        As an alternative to the query_terms dictionary parameter,
-        key, value pairs can be passed as keyword arguments.
-
-        """
         query_terms = dict(query_terms, **kwargs)
         self.query_terms_ = query_terms
         self.callable_filters_ = [callable_filter]
@@ -613,17 +687,19 @@ class ResultFilter(object):
 
         Parameters
         ----------
-        candidate: dict
-        A dictionary representing metadata for a file or a collection,
-        to be filtered.
+        candidate : dict
+            A dictionary representing metadata for a file or a
+            collection, to be filtered.
 
         Returns
         -------
-        True if candidates passes through the filter and False otherwise.
+        bool
+            ``True`` if `candidate` passes through the filter and ``False``
+            otherwise.
 
         """
         for key, value in self.query_terms_.items():
-            if not(value == candidate.get(key)):
+            if not (value == candidate.get(key)):
                 return False
         for callable_filter in self.callable_filters_:
             if not callable_filter(candidate):
@@ -657,7 +733,7 @@ class ResultFilter(object):
     def __rxor__(self, other_filter):
         return self.__xor__(other_filter)
 
-    def __not__(self):
+    def __invert__(self):
         filt = deepcopy(self)
         new_filter = ResultFilter(
             callable_filter=lambda r: not filt(r))
@@ -679,20 +755,63 @@ class ResultFilter(object):
     def add_filter(self, callable_filter):
         """Add a function to the callable_filters_.
 
-        After a call add_filter(additional_filt), in addition
-        to all the previous requirements, a candidate must also
-        verify additional_filt(candidate) in order to pass through
-        the filter.
+        After a call add_filter(additional_filt), in addition to all
+        the previous requirements, a candidate must also verify
+        additional_filt(candidate) in order to pass through the
+        filter.
 
         """
         self.callable_filters_.append(callable_filter)
 
 
 def _simple_download(url, target_file, temp_dir):
-    """Wrapper around _fetch_file which allows specifying target file name."""
+    """Wrapper around ``utils._fetch_file``.
+
+    This allows specifying the target file name.
+
+    Parameters
+    ----------
+    url : str
+        URL of the file to download.
+
+    target_file : str
+        Location of the downloaded file on filesystem.
+
+    temp_dir : str
+        Location of sandbox directory used by ``_fetch_file``.
+
+    Returns
+    -------
+    target_file : str
+        The location in which the file was downloaded.
+
+    Raises
+    ------
+    URLError, ValueError
+        If an error occurred when downloading the file.
+
+    See Also
+    --------
+    _utils._fetch_file
+
+    """
     _logger.debug('downloading file: {}'.format(url))
-    downloaded = _fetch_file(url, temp_dir, resume=False,
-                             overwrite=True, verbose=0)
+    try:
+        downloaded = _fetch_file(url, temp_dir, resume=False,
+                                 overwrite=True, verbose=0)
+    except Exception as e:
+        _logger.error('problem downloading file from {}'.format(url))
+
+        # reason is a property of urlib.error.HTTPError objects,
+        # but these objects don't have a setter for it, so
+        # an HTTPError raised in _fetch_file might be transformed
+        # into an AttributeError when we try to set its reason attribute
+        if (isinstance(e, AttributeError) and
+            e.args[0] == "can't set attribute"):
+            raise URLError(
+                'HTTPError raised in nilearn.datasets._fetch_file; '
+                'then AttributeError when trying to set reason attribute.')
+        raise
     shutil.move(downloaded, target_file)
     _logger.debug(
         'download succeeded, downloaded to: {}'.format(target_file))
@@ -701,7 +820,40 @@ def _simple_download(url, target_file, temp_dir):
 
 def _checked_get_dataset_dir(dataset_name, suggested_dir=None,
                              write_required=False):
-    """Wrapper for _get_dataset_dir; expands . and ~ and checks write access"""
+    """Wrapper for ``_get_dataset_dir``.
+
+    Expands . and ~ and checks write access.
+
+    Parameters
+    ----------
+    dataset_name : str
+        Passed to ``_get_dataset_dir``. Example: ``neurovault``.
+
+    suggested_dir : str
+        Desired location of root data directory for all datasets,
+        e.g. ``~/home/nilearn_data``.
+
+    write_required : bool, optional (default=False)
+        If ``True``, check that the user has write access to the
+        chosen data directory and raise ``IOError`` if not.  If
+        ``False``, don't check for write permission.
+
+    Returns
+    -------
+    dataset_dir : str
+        The location of the dataset directory in the filesystem.
+
+    Raises
+    ------
+    IOError
+        If `write_required` is set and the user doesn't have write
+        access to `dataset_dir`.
+
+    See Also
+    --------
+    _utils._get_dataset_dir
+
+    """
     if suggested_dir is not None:
         suggested_dir = os.path.abspath(os.path.expanduser(suggested_dir))
     dataset_dir = _get_dataset_dir(dataset_name, data_dir=suggested_dir)
@@ -712,31 +864,68 @@ def _checked_get_dataset_dir(dataset_name, suggested_dir=None,
     return dataset_dir
 
 
-def neurovault_directory(suggested_path=None):
-    """Return path to neurovault directory on filesystem."""
+def neurovault_directory(suggested_data_dir=None, dataset_name='neurovault'):
+    """Return path to neurovault directory on filesystem.
+
+    A connection to a local database in this directory is open and its
+    contents are updated.
+
+    See Also
+    --------
+    set_neurovault_directory
+    refresh_db
+
+    """
     try:
         if neurovault_directory.directory_path_ is not None:
             return neurovault_directory.directory_path_
     except AttributeError:
         pass
+    _logger.debug('looking for neurovault directory')
+    close_database_connection()
     neurovault_directory.directory_path_ = _checked_get_dataset_dir(
-        'neurovault', suggested_path)
+        dataset_name, suggested_data_dir)
     assert(neurovault_directory.directory_path_ is not None)
     refresh_db()
     return neurovault_directory.directory_path_
 
 
-def set_neurovault_directory(new_dir):
-    """Set the default neurovault directory to a new location."""
+def set_neurovault_directory(new_data_dir, new_dataset_name='neurovault'):
+    """Set the default neurovault directory to a new location.
+
+    If the preferred directory is changed, if a connection to a local
+    database was open, it is closed; a connection is open to a
+    database in the new directory and its contents are updated.
+
+    Parameters
+    ----------
+    suggested_data_dir : str
+        Suggested path for root data directory of all datasets.
+
+    dataset_name : str, optional (default='neurovault')
+
+    Returns
+    -------
+
+    neurovault_directory.directory_path_ : str
+        The new neurovault directory used by default by all functions.
+
+    See Also
+    --------
+    neurovault_directory
+    refresh_db
+    _checked_get_dataset_dir
+
+    """
     try:
-        del neurovault_directory.directory_path_
+        neurovault_directory.directory_path_ = None
     except Exception as e:
         pass
-    close_database_connection()
-    return neurovault_directory(new_dir)
+    return neurovault_directory(new_data_dir, new_dataset_name)
 
 
 def neurovault_metadata_db_path(**kwargs):
+    """Get location of sqlite file holding Neurovault metadata."""
     return os.path.join(neurovault_directory(**kwargs),
                         '.neurovault_metadata.db')
 
@@ -757,15 +946,20 @@ def _fetch_neurosynth_words(image_id, target_file, temp_dir):
 
     Parameters
     ----------
-    image_id: int
-    The Neurovault id of the statistical map.
+    image_id : int
+        The Neurovault id of the statistical map.
 
-    target_file: str
-    Path to the file in which the terms will be stored on disk
-    (a json file).
+    target_file : str
+        Path to the file in which the terms will be stored on disk
+        (a json file).
 
-    temp_dir: str
-    Path to directory used by _simple_download.
+    temp_dir : str
+        Path to directory used by ``_simple_download``.
+
+    Returns
+    -------
+    None
+
     """
     query = urljoin(_NEUROSYNTH_FETCH_WORDS_URL,
                     '?neurovault={}'.format(image_id))
@@ -782,6 +976,7 @@ def neurosynth_words_vectorized(word_files):
         except Exception as e:
             _logger.warning(
                 'could not load words from file {}'.format(file_name))
+            words.append({})
     vectorizer = DictVectorizer()
     frequencies = vectorizer.fit_transform(words)
     vocabulary = vectorizer.feature_names_
@@ -789,7 +984,7 @@ def neurosynth_words_vectorized(word_files):
 
 
 class BaseDownloadManager(object):
-    """Base class for all download managers.
+    """Base class for all Neurovault download managers.
 
     download managers are used as parameters for
     fetch_neurovault; they download the files and store them
@@ -797,7 +992,7 @@ class BaseDownloadManager(object):
 
     A BaseDownloadManager does not download anything,
     but increments a counter each time self.image is called,
-    and raises a StopIteration exception when the specified
+    and raises a MaxImagesReached exception when the specified
     max number of images has been reached.
 
     Subclasses should override _collection_hook and
@@ -810,7 +1005,7 @@ class BaseDownloadManager(object):
     ----------
     max_images: int
     Number of calls to self.image after which
-    a StopIteration exception will be raised.
+    a MaxImagesReached exception will be raised.
 
     nv_data_dir_: str
     Path to the neurovault home directory.
@@ -842,7 +1037,7 @@ class BaseDownloadManager(object):
     def image(self, image_info):
         """Stop metadata stream if max_images has been reached."""
         if self.already_downloaded_ == self.max_images_:
-            raise StopIteration()
+            raise MaxImagesReached()
         image_info = self._image_hook(image_info)
         if image_info is not None:
             self.already_downloaded_ += 1
@@ -873,6 +1068,13 @@ class BaseDownloadManager(object):
     def finish(self):
         pass
 
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *args):
+        self.finish()
+
     def write_ok(self):
         return os.access(self.nv_data_dir_, os.W_OK)
 
@@ -897,6 +1099,14 @@ def _add_absolute_paths(root_dir, metadata, force=True):
     return metadata
 
 
+def _re_raise(error):
+    raise(error)
+
+
+def _tolerate_failure(error):
+    pass
+
+
 class DownloadManager(BaseDownloadManager):
     """Store maps, metadata, reduced representations and associated words.
 
@@ -919,7 +1129,7 @@ class DownloadManager(BaseDownloadManager):
     ----------
     max_images_: int
     number of downloaded images after which the metadata stream is
-    stopped (StopIteration is raised).
+    stopped (MaxImagesReached is raised).
 
     nv_data_dir_: str
     Path to the directory in which maps and metadata are stored.
@@ -954,7 +1164,8 @@ class DownloadManager(BaseDownloadManager):
 
     """
     def __init__(self, neurovault_data_dir=None, temp_dir=None,
-                 fetch_neurosynth_words=False, max_images=100):
+                 fetch_neurosynth_words=False, fetch_reduced_rep=True,
+                 max_images=100, neurosynth_error_handler=_tolerate_failure):
         """Construct DownloadManager.
 
         Parameters
@@ -980,8 +1191,11 @@ class DownloadManager(BaseDownloadManager):
         """
         super(DownloadManager, self).__init__(
             neurovault_data_dir=neurovault_data_dir, max_images=max_images)
-        self.temp_dir_ = _get_temp_dir(temp_dir)
+        self.suggested_temp_dir_ = temp_dir
+        self.temp_dir_ = None
         self.fetch_ns_ = fetch_neurosynth_words
+        self.fetch_reduced_rep_ = fetch_reduced_rep
+        self.neurosynth_error_handler_ = neurosynth_error_handler
 
     def _collection_hook(self, collection_info):
         """Create collection subdir and store metadata.
@@ -1021,14 +1235,20 @@ class DownloadManager(BaseDownloadManager):
                                                   ns_words_file_name)
             ns_words_absolute_path = os.path.join(collection_absolute_path,
                                                   ns_words_file_name)
+            if not os.path.isfile(ns_words_absolute_path):
+                try:
+                    _fetch_neurosynth_words(
+                        image_info['id'],
+                        ns_words_absolute_path, self.temp_dir_)
+                except(URLError, ValueError) as e:
+                    _logger.exception(
+                        'could not fetch words for image {}'.format(
+                            image_info['id']))
+                    self.neurosynth_error_handler_(e)
             image_info[
                 'neurosynth_words_relative_path'] = ns_words_relative_path
             image_info[
                 'neurosynth_words_absolute_path'] = ns_words_absolute_path
-
-            if not os.path.isfile(ns_words_absolute_path):
-                _fetch_neurosynth_words(image_info['id'],
-                                        ns_words_absolute_path, self.temp_dir_)
         return image_info
 
     def _image_hook(self, image_info):
@@ -1064,7 +1284,7 @@ class DownloadManager(BaseDownloadManager):
         image_info['absolute_path'] = image_absolute_path
         image_info['relative_path'] = image_relative_path
         reduced_image_url = image_info.get('reduced_representation')
-        if reduced_image_url is not None:
+        if self.fetch_reduced_rep_ and reduced_image_url is not None:
             reduced_image_name = 'image_{}_reduced_rep.npy'.format(image_id)
             reduced_image_relative_path = os.path.join(
                 collection_relative_path, reduced_image_name)
@@ -1083,7 +1303,7 @@ class DownloadManager(BaseDownloadManager):
         _write_metadata(image_info, metadata_file_path)
         # self.already_downloaded_ is incremented only after
         # this routine returns successfully.
-        _logger.debug('already downloaded {} image{}'.format(
+        _logger.info('already downloaded {} image{}'.format(
             self.already_downloaded_ + 1,
             ('s' if self.already_downloaded_ + 1 > 1 else '')))
         return image_info
@@ -1096,6 +1316,17 @@ class DownloadManager(BaseDownloadManager):
         _write_metadata(image_info, metadata_file_path)
         return image_info
 
+    def start(self):
+        if self.temp_dir_ is None:
+            self.temp_dir_ = _get_temp_dir(self.suggested_temp_dir_)
+
+    def finish(self):
+        if self.temp_dir_ is None:
+            return
+        if self.temp_dir_ != self.suggested_temp_dir_:
+            shutil.rmtree(self.temp_dir_)
+            self.temp_dir_ = None
+
 
 class SQLiteDownloadManager(DownloadManager):
 
@@ -1103,7 +1334,6 @@ class SQLiteDownloadManager(DownloadManager):
                  collection_fields=_COLLECTION_BASIC_FIELDS_SQL.keys(),
                  **kwargs):
         super(SQLiteDownloadManager, self).__init__(**kwargs)
-        self.db_file_ = neurovault_metadata_db_path()
         self.connection_ = None
         self.cursor_ = None
         self.im_fields_ = _filter_field_names(image_fields,
@@ -1155,10 +1385,9 @@ class SQLiteDownloadManager(DownloadManager):
         return self._add_to_collections(collection_info)
 
     def start(self):
-        self.finish()
-        self.connection_ = sqlite3.connect(self.db_file_)
-        self.connection_.row_factory = sqlite3.Row
-        self.cursor_ = self.connection_.cursor()
+        _logger.debug('starting download manager')
+        self.connection_ = local_database_connection()
+        self.cursor_ = local_database_cursor()
         self._update_schema()
 
     def _update_schema(self):
@@ -1194,71 +1423,88 @@ class SQLiteDownloadManager(DownloadManager):
     def finish(self):
         if self.connection_ is None:
             return
-        try:
-            self.connection_.commit()
-            self.connection_.close()
-        except Exception as e:
-            _logger.exception('error closing db connection')
+        close_database_connection(_logger.debug)
         self.connection_ = None
+
+
+def _scroll_collection(collection, image_terms, image_filter, batch_size,
+                       download_manager,
+                       previous_consecutive_fails, max_consecutive_fails):
+    n_im_in_collection = 0
+    consecutive_fails = previous_consecutive_fails
+    query = urljoin(_NEUROVAULT_COLLECTIONS_URL,
+                    '{}/images/'.format(collection['id']))
+    images = _scroll_server_results(
+        query, query_terms=image_terms,
+        local_filter=image_filter,
+        prefix_msg='scroll images from collection {}: '.format(
+            collection['id']),
+        batch_size=batch_size)
+    for image in images:
+        try:
+            image = download_manager.image(image)
+            consecutive_fails = 0
+            yield image, consecutive_fails
+            n_im_in_collection += 1
+        except MaxImagesReached:
+            raise
+        except Exception:
+            consecutive_fails += 1
+            _logger.exception(
+                '_scroll_collection: bad image: {}'.format(image))
+        if consecutive_fails == max_consecutive_fails:
+            _logger.error(
+                '_scroll_server_data stopping after {} bad images'.format(
+                    consecutive_fails))
+            raise RuntimeError(
+                '{} consecutive bad images'.format(consecutive_fails))
+
+    _logger.info(
+        'on neurovault.org: '
+        '{} image{} matched query in collection {}'.format(
+            (n_im_in_collection if n_im_in_collection else 'no'),
+            ('s' if n_im_in_collection > 1 else ''), collection['id']))
 
 
 # TODO: finish docstring.
 def _scroll_server_data(collection_query_terms={},
                         collection_local_filter=_empty_filter,
-                        image_query_terms={},
-                        image_local_filter=_empty_filter,
+                        image_query_terms={}, image_local_filter=_empty_filter,
                         download_manager=None, max_images=None,
-                        metadata_batch_size=None):
+                        metadata_batch_size=None, max_consecutive_fails=5):
     """Return a generator iterating over neurovault.org results for a query."""
     if download_manager is None:
         download_manager = BaseDownloadManager(max_images=max_images)
-    download_manager.start()
 
-    collections = _scroll_server_results(_NEUROVAULT_COLLECTIONS_URL,
-                                         query_terms=collection_query_terms,
-                                         local_filter=collection_local_filter,
-                                         prefix_msg='scroll collections: ',
-                                         batch_size=metadata_batch_size)
-    for collection in collections:
-        bad_collection = False
-        try:
-            collection = download_manager.collection(collection)
-        except Exception as e:
-            if isinstance(e, StopIteration):
-                download_manager.finish()
+    collections = _scroll_server_results(
+        _NEUROVAULT_COLLECTIONS_URL, query_terms=collection_query_terms,
+        local_filter=collection_local_filter,
+        prefix_msg='scroll collections: ', batch_size=metadata_batch_size)
+    consecutive_fails = 0
+
+    with download_manager:
+        for collection in collections:
+            try:
+                collection = download_manager.collection(collection)
+            except MaxImagesReached:
                 raise
-            _logger.exception('_scroll_server_data: bad collection: {}'.format(
-                collection))
-            bad_collection = True
-
-        if not bad_collection:
-            n_im_in_collection = 0
-            query = urljoin(_NEUROVAULT_COLLECTIONS_URL,
-                            '{}/images/'.format(collection['id']))
-            images = _scroll_server_results(
-                query, query_terms=image_query_terms,
-                local_filter=image_local_filter,
-                prefix_msg='scroll images from collection {}: '.format(
-                    collection['id']),
-                batch_size=metadata_batch_size)
-            for image in images:
+            except Exception:
+                _logger.exception(
+                    '_scroll_server_data: bad collection: {}'.format(
+                        collection))
+                raise
+            collection_content = _scroll_collection(
+                collection, image_query_terms, image_local_filter,
+                metadata_batch_size, download_manager,
+                consecutive_fails, max_consecutive_fails)
+            while True:
                 try:
-                    image = download_manager.image(image)
-                    yield image, collection
-                    n_im_in_collection += 1
-                except Exception as e:
-                    if isinstance(e, StopIteration):
-                        download_manager.finish()
-                        raise
-                    _logger.exception(
-                        '_scroll_server_data: bad image: {}'.format(image))
-            _logger.info(
-                'on neurovault.org: '
-                '{} image{} matched query in collection {}'.format(
-                    (n_im_in_collection if n_im_in_collection else 'no'),
-                    ('s' if n_im_in_collection > 1 else ''), collection['id']))
-
-    download_manager.finish()
+                    image, consecutive_fails = next(collection_content)
+                except MaxImagesReached:
+                    raise
+                except StopIteration:
+                    break
+                yield image, collection
 
 
 def _json_from_file(file_name):
@@ -1394,6 +1640,15 @@ def _return_same(*args):
     return args
 
 
+class _EmptyContext(object):
+
+    def __enter__(self, *args):
+        pass
+
+    def __exit__(self, *args):
+        pass
+
+
 # TODO: finish docstring
 def _join_local_and_remote(neurovault_dir, mode='download_new',
                            collection_terms={},
@@ -1405,40 +1660,45 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
         raise ValueError(
             'supported modes are overwrite,'
             ' download_new, offline; got {}'.format(mode))
-
+    image_ids, collection_ids = set(), set()
     if mode == 'overwrite':
         local_data = tuple()
     else:
+        _logger.debug('reading local neurovault data')
         local_data = _prepare_local_scroller(
             neurovault_dir, collection_terms, collection_filter,
             image_terms, image_filter, max_images)
-    image_ids, collection_ids = set(), set()
-
-    if download_manager is not None:
-        download_manager.start()
-        update = download_manager.update
-    else:
-        update = _return_same
-
-    for image, collection in local_data:
-        image, collection = update(image, collection)
-        image_ids.add(image['id'])
-        collection_ids.add(collection['id'])
-        yield image, collection
-
-    if download_manager is not None:
-        download_manager.finish()
+        context = (download_manager if download_manager is not None
+                   else _EmptyContext)
+        update = (download_manager.update if download_manager is not None
+                  else _return_same)
+        with context:
+            for image, collection in local_data:
+                image, collection = update(image, collection)
+                image_ids.add(image['id'])
+                collection_ids.add(collection['id'])
+                yield image, collection
 
     if mode == 'offline':
         return
     if max_images is not None and len(image_ids) >= max_images:
         return
 
+    _logger.debug('reading server neurovault data')
     server_data = _prepare_remote_scroller(collection_terms, collection_filter,
                                            image_terms, image_filter,
                                            collection_ids, image_ids,
                                            download_manager, max_images)
-    for image, collection in server_data:
+    while True:
+        try:
+            image, collection = next(server_data)
+        except StopIteration:
+            return
+        except Exception:
+            _logger.exception('downloading data from server stopped early')
+            _logger.error('downloading data from server stopped early: '
+                          'see stacktrace above')
+            return
         yield image, collection
 
 
@@ -1504,6 +1764,7 @@ def fetch_neurovault(max_images=None,
 
 
 def refresh_db(*args, **kwargs):
+    _logger.debug('refreshing local database')
     download_manager = SQLiteDownloadManager(*args, **kwargs)
     fetch_neurovault(image_terms={}, collection_terms={},
                      download_manager=download_manager,
@@ -1666,11 +1927,11 @@ def local_database_cursor():
 
 
 @atexit.register
-def close_database_connection():
+def close_database_connection(log_fun=_logger.info):
     try:
         local_database_connection.connection_.commit()
         local_database_connection.connection_.close()
-        _logger.info(
+        log_fun(
             'committed changes to local database and closed connection')
     except (AttributeError, sqlite3.ProgrammingError):
         pass
@@ -1743,4 +2004,10 @@ def read_sql_query(query, as_columns=True, curs=None):
     col_names = resp[0].keys()
     cols = zip(*resp)
     cols = map(np.asarray, cols)
-    return OrderedDict(zip(col_names, cols))
+    response = OrderedDict(zip(col_names, cols))
+    if 'neurosynth_words_absolute_path' in query:
+        frequencies, vocabulary = neurosynth_words_vectorized(
+            response['neurosynth_words_absolute_path'])
+        response['word_frequencies'] = frequencies
+        response['vocabulary'] = vocabulary
+    return response
