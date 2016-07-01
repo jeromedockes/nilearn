@@ -2723,7 +2723,8 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None):
     curs.execute(query, bindings)
     resp = curs.fetchall()
     if not resp:
-        return None
+        col_names = list(zip(*curs.description))[0]
+        return OrderedDict([(name, []) for name in col_names])
     if not as_columns:
         return resp
     col_names = resp[0].keys()
