@@ -5,23 +5,21 @@ import shutil
 import json
 
 import numpy as np
+from nose import SkipTest
 from nose.tools import (assert_true, assert_false, assert_equal)
 
 from nilearn.datasets import neurovault as nv
 
 
-try:
-    _TemporaryDirectory = tempfile.TemporaryDirectory
-except AttributeError:
-    # only introduced in tempfile in python3, so use a
-    # basic handwritten function if python2
-    class _TemporaryDirectory(object):
-        def __enter__(self):
-            self.temp_dir_ = tempfile.mkdtemp()
-            return self.temp_dir_
+class _TemporaryDirectory(object):
+    def __enter__(self):
+        self.temp_dir_ = tempfile.mkdtemp()
+        nv.set_neurovault_directory(self.temp_dir_)
+        return self.temp_dir_
 
-        def __exit__(self, *args):
-            shutil.rmtree(self.temp_dir_)
+    def __exit__(self, *args):
+        shutil.rmtree(self.temp_dir_)
+        nv.set_neurovault_directory(None)
 
 
 def test_translate_types_to_sql():
@@ -48,7 +46,7 @@ def ignore_connection_errors(func):
         try:
             func(*args, **kwargs)
         except nv.URLError:
-            pass
+            raise SkipTest('connection problem')
 
     return decorate
 
@@ -204,9 +202,8 @@ def test_neurovault_directory():
 def test_set_neurovault_directory():
     try:
         with _TemporaryDirectory() as temp_dir:
-            dataset_dir = nv.set_neurovault_directory(temp_dir, 'neurovault')
-            assert_true(os.path.samefile(
-                dataset_dir, os.path.join(temp_dir, 'neurovault')))
+            dataset_dir = nv.set_neurovault_directory(temp_dir)
+            assert_true(os.path.samefile(dataset_dir, temp_dir))
     finally:
         nv.set_neurovault_directory(None)
 
@@ -280,24 +277,75 @@ def test_write_read_metadata():
         assert_equal(read_metadata['absolute_path'], '/tmp/collection_1')
 
 
-def test_download_manager_collection(download_manager=None):
+def test_add_absolute_paths():
+    meta = {'col_relative_path': 'collection_1',
+            'col_absolute_path': '/dir_0/neurovault/collection_1'}
+    meta = nv._add_absolute_paths('/dir_1/neurovault/', meta, force=False)
+    assert_equal(meta['col_absolute_path'], '/dir_0/neurovault/collection_1')
+    meta = nv._add_absolute_paths('/dir_1/neurovault/', meta, force=True)
+    assert_equal(meta['col_absolute_path'], '/dir_1/neurovault/collection_1')
+
+
+def test_DownloadManager():
     with _TemporaryDirectory() as data_temp_dir:
-        if download_manager is None:
-            nv.set_neurovault_directory(data_temp_dir)
-            download_manager = nv.DownloadManager(data_temp_dir)
-        collection = {'id': 1}
-        download_manager.start()
-        temp_dir = download_manager.temp_dir_
-        assert_true(os.path.isdir(temp_dir))
+        download_manager = nv.DownloadManager()
         with download_manager:
-            collection = download_manager.collection(collection)
-            with open(os.path.join(
-                    collection['absolute_path'],
-                    'collection_metadata.json')) as collection_meta_file:
-                collection = json.load(collection_meta_file)
-        nv.set_neurovault_directory(None)
-        assert_equal(collection['id'], 1)
+            temp_dir = download_manager.temp_dir_
+            assert_true(os.path.isdir(temp_dir))
         assert_false(os.path.isdir(temp_dir))
+
+
+def test_SQLiteDownloadManager():
+    with _TemporaryDirectory() as data_temp_dir:
+        download_manager = nv.SQLiteDownloadManager()
+        with download_manager:
+            assert_false(download_manager.connection_ is None)
+        assert_true(download_manager.connection_ is None)
+
+
+def test_json_add_collection_dir():
+    with _TemporaryDirectory() as data_temp_dir:
+        coll_dir = os.path.join(data_temp_dir, 'collection_1')
+        os.makedirs(coll_dir)
+        coll_file_name = os.path.join(coll_dir, 'collection_1.json')
+        with open(coll_file_name, 'w') as coll_file:
+            json.dump({'id': 1}, coll_file)
+        loaded = nv._json_add_collection_dir(coll_file_name)
+        assert_equal(loaded['absolute_path'], coll_dir)
+        assert_equal(loaded['relative_path'], 'collection_1')
+
+
+def test_json_add_im_files_paths():
+    with _TemporaryDirectory() as data_temp_dir:
+        coll_dir = os.path.join(data_temp_dir, 'collection_1')
+        os.makedirs(coll_dir)
+        im_file_name = os.path.join(coll_dir, 'image_1.json')
+        with open(im_file_name, 'w') as im_file:
+            json.dump({'id': 1}, im_file)
+        loaded = nv._json_add_im_files_paths(im_file_name)
+        assert_equal(loaded['relative_path'], 'collection_1/image_1.nii.gz')
+        assert_true(loaded.get('neurosynth_words_relative_path') is None)
+
+
+def test_move_unknown_terms_to_local_filter():
+    terms, new_filter = nv._move_unknown_terms_to_local_filter(
+        {'a': 0, 'b': 1}, nv.ResultFilter(), {'a'})
+    assert_equal(terms, {'a': 0})
+    assert_false(new_filter({'b': 0}))
+    assert_true(new_filter({'b': 1}))
+
+
+def test_fetch_neurovault():
+    with _TemporaryDirectory() as data_temp_dir:
+        data = nv.fetch_neurovault(max_images=1, fetch_neurosynth_words=True)
+        if data is not None:
+            assert_equal(len(data.images), 1)
+            meta = data.images_meta[0]
+            assert_false(meta['not_mni'])
+            db_data = nv.read_sql_query(
+                'SELECT id, absolute_path FROM images WHERE id=?',
+                (meta['id'],))
+            assert_equal(db_data['absolute_path'][0], meta['absolute_path'])
 
 
 # TODO: remove this

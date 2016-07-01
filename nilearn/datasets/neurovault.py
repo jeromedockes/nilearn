@@ -794,6 +794,14 @@ def _simple_download(url, target_file, temp_dir):
     --------
     _utils._fetch_file
 
+
+    Notes
+    -----
+    It can happen that an HTTP error that occurs inside
+    ``_fetch_file`` gets transformed into an ``AttributeError`` when
+    we try to set the ``reason`` attribute of the exception raised;
+    here we replace it with an ``URLError``.
+
     """
     _logger.debug('downloading file: {}'.format(url))
     try:
@@ -864,7 +872,7 @@ def _checked_get_dataset_dir(dataset_name, suggested_dir=None,
     return dataset_dir
 
 
-def neurovault_directory(suggested_data_dir=None, dataset_name='neurovault'):
+def neurovault_directory(suggested_dir=None):
     """Return path to neurovault directory on filesystem.
 
     A connection to a local database in this directory is open and its
@@ -876,21 +884,25 @@ def neurovault_directory(suggested_data_dir=None, dataset_name='neurovault'):
     refresh_db
 
     """
-    try:
-        if neurovault_directory.directory_path_ is not None:
-            return neurovault_directory.directory_path_
-    except AttributeError:
-        pass
+    if getattr(neurovault_directory, 'directory_path_', None) is not None:
+        return neurovault_directory.directory_path_
+
     _logger.debug('looking for neurovault directory')
     close_database_connection()
+    if suggested_dir is None:
+        root_data_dir, dataset_name = None, 'neurovault'
+    else:
+        suggested_path = suggested_dir.split(os.path.sep)
+        dataset_name = suggested_path[-1]
+        root_data_dir = os.path.sep.join(suggested_path[:-1])
     neurovault_directory.directory_path_ = _checked_get_dataset_dir(
-        dataset_name, suggested_data_dir)
+        dataset_name, root_data_dir)
     assert(neurovault_directory.directory_path_ is not None)
     refresh_db()
     return neurovault_directory.directory_path_
 
 
-def set_neurovault_directory(new_data_dir, new_dataset_name='neurovault'):
+def set_neurovault_directory(new_neurovault_dir=None):
     """Set the default neurovault directory to a new location.
 
     If the preferred directory is changed, if a connection to a local
@@ -899,10 +911,10 @@ def set_neurovault_directory(new_data_dir, new_dataset_name='neurovault'):
 
     Parameters
     ----------
-    suggested_data_dir : str
-        Suggested path for root data directory of all datasets.
-
-    dataset_name : str, optional (default='neurovault')
+    new_neurovault_dir : str, optional (default=None)
+        Suggested path for neurovault directory.
+        The default value ``None`` means reset neurovault directory
+        path to its default value.
 
     Returns
     -------
@@ -917,11 +929,8 @@ def set_neurovault_directory(new_data_dir, new_dataset_name='neurovault'):
     _checked_get_dataset_dir
 
     """
-    try:
-        neurovault_directory.directory_path_ = None
-    except Exception as e:
-        pass
-    return neurovault_directory(new_data_dir, new_dataset_name)
+    neurovault_directory.directory_path_ = None
+    return neurovault_directory(new_neurovault_dir)
 
 
 def neurovault_metadata_db_path(**kwargs):
@@ -966,7 +975,41 @@ def _fetch_neurosynth_words(image_id, target_file, temp_dir):
     _simple_download(query, target_file, temp_dir)
 
 
-def neurosynth_words_vectorized(word_files):
+def neurosynth_words_vectorized(word_files, **kwargs):
+    """Load Neurosynth data from disk into an (n files, voc size) matrix
+
+    Neurosynth data is saved on disk as ``{word: weight}``
+    dictionaries for each image, this function reads it and returs a
+    vocabulary list and a term weight matrix.
+
+    Parameters:
+    ----------
+    word_files : container
+        The paths to the files from which to read word weights (each
+        is supposed to contain the Neurosynth response for a
+        particular image).
+
+    Keyword arguments are passed on to
+    `sklearn.feature_extraction.DictVectorizer.
+
+    Returns:
+    -------
+    vocabulary : list of str
+        A list of all the words encountered in the word files.
+
+    frequencies : scipy.sparse.csr.csr_matrix
+        An (n images, vocabulary size) matrix. Each row corresponds to
+        an image, and each column corresponds to a word. The words are
+        in the same order as in returned vaule `vocabulary`, so that
+        `frequencies[i, j]` corresponds to the weight of
+        `vocabulary[j]` for image ``i``.  This matrix is computed by
+        an ``sklearn.feature_extraction.DictVectorizer`` instance.
+
+    See Also
+    --------
+    sklearn.feature_extraction.DictVectorizer
+
+    """
     words = []
     for file_name in word_files:
         try:
@@ -977,7 +1020,7 @@ def neurosynth_words_vectorized(word_files):
             _logger.warning(
                 'could not load words from file {}'.format(file_name))
             words.append({})
-    vectorizer = DictVectorizer()
+    vectorizer = DictVectorizer(**kwargs)
     frequencies = vectorizer.fit_transform(words)
     vocabulary = vectorizer.feature_names_
     return frequencies, vocabulary
@@ -986,42 +1029,30 @@ def neurosynth_words_vectorized(word_files):
 class BaseDownloadManager(object):
     """Base class for all Neurovault download managers.
 
-    download managers are used as parameters for
-    fetch_neurovault; they download the files and store them
-    on disk.
+    download managers are used as parameters for fetch_neurovault;
+    they download the files and store them on disk.
 
-    A BaseDownloadManager does not download anything,
-    but increments a counter each time self.image is called,
-    and raises a MaxImagesReached exception when the specified
-    max number of images has been reached.
+    A ``BaseDownloadManager`` does not download anything, but
+    increments a counter and raises a ``MaxImagesReached`` exception
+    when the specified max number of images has been reached.
 
-    Subclasses should override _collection_hook and
-    _image_hook in order to perform the actual work.
-    They should not override image as it is responsible for
-    stopping the stream of metadata when the max numbers of
-    images has been reached.
+    Subclasses should override ``_collection_hook`` and
+    ``_image_hook`` in order to perform the actual work.  They should
+    not override ``image`` as it is responsible for stopping the
+    stream of metadata when the max numbers of images has been
+    reached.
 
-    Attributes
+    Parameters
     ----------
-    max_images: int
-    Number of calls to self.image after which
-    a MaxImagesReached exception will be raised.
+    neurovault_data_dir : str, optional (default=None)
+        The directory we want to use for Neurovault data. This is
+        passed on to _get_dataset_dir, which may result in another
+        directory being used if the one that was specified is not
+        valid.
 
-    nv_data_dir_: str
-    Path to the neurovault home directory.
-
-    Methods
-    -------
-    collection:
-    Called each time metadata for a collection is retrieved.
-
-    image:
-    Called each time metadata for an image is retreived.
-
-    _collection_hook, _image_hook:
-    Callbacks to be overriden by subclasses. They should perform
-    the necessary actions in order to save the relevant data on disk,
-    and return the metadata (which they may have modified).
+    max_images : int, optional(default=100)
+        Maximum number of images to fetch. ``None`` or a negative
+        value means download as many as you can.
 
     """
     def __init__(self, neurovault_data_dir=None, max_images=100):
@@ -1032,10 +1063,24 @@ class BaseDownloadManager(object):
         self.already_downloaded_ = 0
 
     def collection(self, collection_info):
+        """Receive metadata for a collection and take necessary actions.
+
+        The actual work is delegated to ``self._collection_hook``,
+        which subclasses should override.
+
+        """
         return self._collection_hook(collection_info)
 
     def image(self, image_info):
-        """Stop metadata stream if max_images has been reached."""
+        """Receive metadata for an image and take necessary actions.
+
+        Stop metadata stream if maximum number of images has been
+        reached.
+
+        The actual work is delegated to ``self._image_hook``,
+        which subclasses should override.
+
+        """
         if self.already_downloaded_ == self.max_images_:
             raise MaxImagesReached()
         image_info = self._image_hook(image_info)
@@ -1050,6 +1095,7 @@ class BaseDownloadManager(object):
         return collection_info
 
     def update(self, image_info, collection_info):
+        """Act when metadata stored on disk is seen again."""
         image_info = self.update_image(image_info)
         collection_info = self.update_collection(collection_info)
         return image_info, collection_info
@@ -1063,9 +1109,11 @@ class BaseDownloadManager(object):
         return image_info
 
     def start(self):
+        """Prepare for download session."""
         pass
 
     def finish(self):
+        """Cleanup after download session."""
         pass
 
     def __enter__(self):
@@ -1076,17 +1124,59 @@ class BaseDownloadManager(object):
         self.finish()
 
     def write_ok(self):
+        """Check if we have the authorization to modify the data dir."""
         return os.access(self.nv_data_dir_, os.W_OK)
 
 
 def _write_metadata(metadata, file_name):
+    """Save metadata to disk.
+
+    Absolute paths are not written; they are recomputed using the
+    relative paths when data is loaded again, so that if the
+    Neurovault directory has been moved paths are still valid.
+
+    Parameters
+    ----------
+    metadata : dict
+        Dictionary representing metadata for a file or a
+        collection. Any key containing 'absolute' is ignored.
+
+    file_name : str
+        Path to the file in which to write the data.
+
+    """
     metadata = {k: v for k, v in metadata.items()
-                if not re.search(r'absolute', k)}
+                if 'absolute' not in k}
     with open(file_name, 'w') as metadata_file:
         json.dump(metadata, metadata_file)
 
 
 def _add_absolute_paths(root_dir, metadata, force=True):
+    """Add absolute paths to a dictionary containing relative paths.
+
+    Parameters
+    ----------
+    root_dir : str
+        The root of the data directory, to prepend to relative paths
+        in order to form absolute paths.
+
+    metadata : dict
+        Dictionary containing metadata for a file or a collection. Any
+        key containing 'relative' is understood to be mapped to a
+        relative path and the corresponding absolute path is added to
+        the dictionary.
+
+    force : bool, optional (default=True)
+        If ``True``, if an absolute path is already present in the
+        metadata, it is replaced with the recomputed value. If
+        ``False``, already specified absolute paths have priority.
+
+    Returns
+    -------
+    metadata : dict
+        The metadata enriched with absolute paths.
+
+    """
     set_func = metadata.__setitem__ if force else metadata.setdefault
     absolute_paths = {}
     for name, value in metadata.items():
@@ -1110,85 +1200,49 @@ def _tolerate_failure(error):
 class DownloadManager(BaseDownloadManager):
     """Store maps, metadata, reduced representations and associated words.
 
-    This download manager stores:
-    - in nv_data_dir_: for each collection, a subdirectory
-    containing metadata for the collection, the brain maps, the
-    metadata for the brain maps, and reduced representations (.npy) files
-    of these maps.
-    subdirectories are named collection_<Neurovault collection id>
-    collection metadata files are collection_<NV collection id>_metadata.json
-    maps are named image_<Neurovault image id>.nii.gz
-    map metadata files are image_<Neurovault image id>_metadata.json
-    reduced representations are image_<NV iamge id>_reduced_rep.npy
+    For each collection, this download manager creates a subdirectory
+    in the Neurovault directory and stores in it:
+        - Metadata for the collection (in .json files).
+        - Metadata for the brain maps (in .json files), the brain maps
+          (in .nii.gz files).
+        - Optionally, the reduced representations of the brain maps
+          (in .npy files).
+        - Optionally, for each image, the words weights associated to
 
-    - optionally, in ns_data_dir_: for each image, the words that were
-    associated to it by Neurosynth and their weights, as a json file.
-    These files are named words_for_image<NV image id>.json
-
-    Attributes
+    Parameters
     ----------
-    max_images_: int
-    number of downloaded images after which the metadata stream is
-    stopped (MaxImagesReached is raised).
+    neurovault_data_dir : str, optional (default=None)
+        The directory we want to use for Neurovault data. This is
+        passed on to _get_dataset_dir, which may result in another
+        directory being used if the one that was specified is not
+        valid.
 
-    nv_data_dir_: str
-    Path to the directory in which maps and metadata are stored.
+    max_images : int, optional(default=100)
+        Maximum number of images to fetch. ``None`` or a negative
+        value means download as many as you can.
 
-    fetch_ns_: bool
-    specifies wether the words should be retreived from Neurosynth.
+    temp_dir : str or None, optional (default=None)
+        Sandbox directory for downloads.  if None, a temporary
+        directory is created by ``tempfile.mkdtemp``.
 
-    ns_data_dir_: str, does not exist if fetch_ns_ is False
-    Path to directory in which Neurosynth words are stored.
+    fetch_neurosynth_words : bool, optional (default=False)
+        Wether to collect words from Neurosynth.
 
-    temp_dir_: str
-    Path to sandbox directory in which files are downloaded before
-    being moved to their final destination.
+    fetch_reduced_rep : bool, optional (default=True)
+        Wether to download the reduced representations from
+        Neurovault.
 
-    Methods
-    -------
-    __init__:
-    Specify directories and wether to fetch Neurosynth words.
-
-    collection:
-    Receive collection metadata.
-
-    _collection_hook:
-    Store collection metadata; creating collection directory if necessary.
-
-    image:
-    Receive image metadata, stop data stream if max_images is reached.
-
-    _image_hook:
-    Download image, reduced representation if available,
-    Neurosynth words if required, and store them on disk.
+    neurosynth_error_handler :
+        Callable, optional (default=_tolerate_failure)
+        What to do when words for an image could not be
+        retrieved. The default value keeps the image anyway and
+        does not raise an error.
 
     """
     def __init__(self, neurovault_data_dir=None, temp_dir=None,
                  fetch_neurosynth_words=False, fetch_reduced_rep=True,
                  max_images=100, neurosynth_error_handler=_tolerate_failure):
-        """Construct DownloadManager.
 
-        Parameters
-        ----------
-        neurovault_data_dir: str or None, optional (default=None)
-        Directory in which to store Neurovault images and metadata.
-        if None, a reasonable location is found by _get_dataset_dir.
-
-        temp_dir: str or None, optional (default=None)
-        Sandbox directory for downloads.
-        if None, a temporary directory is created by tempfile.mkdtemp.
-
-        fetch_neurosynth_words: bool, optional (default=False)
-        wether to collect words from Neurosynth.
-
-        max_images: int, optional (default=100)
-        Maximum number of images to download.
-
-        Returns
-        -------
-        None
-
-        """
         super(DownloadManager, self).__init__(
             neurovault_data_dir=neurovault_data_dir, max_images=max_images)
         self.suggested_temp_dir_ = temp_dir
@@ -1202,13 +1256,14 @@ class DownloadManager(BaseDownloadManager):
 
         Parameters
         ----------
-        collection_info: dict
-        Collection metadata
+        collection_info : dict
+            Collection metadata
 
         Returns
         -------
-        collection_info: dict
-        Collection metadata, with local_path added to it.
+        collection_info : dict
+            Collection metadata, with local path to collection
+            subdirectory added to it.
 
         """
         collection_id = collection_info['id']
@@ -1224,6 +1279,27 @@ class DownloadManager(BaseDownloadManager):
         return collection_info
 
     def _add_words(self, image_info):
+        """Get the Neurosynth words for an image and write them to disk.
+
+        If ``self.fetch_ns_ is ``False``, nothing is done.
+        Errors that occur when fetching words from Neurosynth are
+        handled by ``self.neurosynth_error_handler_``.
+        If the corresponding file already exists on disk, the server
+        is not queryied again.
+
+        Parameters
+        ----------
+        image_info : dict
+            Image metadata.
+
+        Returns
+        -------
+        image_info : dict
+            Image metadata, with local paths to image, reduced
+            representation (if fetched), and Neurosynth words (if
+            fetched) added to it.
+
+        """
         if self.fetch_ns_:
             collection_absolute_path = os.path.dirname(
                 image_info['absolute_path'])
@@ -1245,6 +1321,7 @@ class DownloadManager(BaseDownloadManager):
                         'could not fetch words for image {}'.format(
                             image_info['id']))
                     self.neurosynth_error_handler_(e)
+                    return
             image_info[
                 'neurosynth_words_relative_path'] = ns_words_relative_path
             image_info[
@@ -1252,19 +1329,24 @@ class DownloadManager(BaseDownloadManager):
         return image_info
 
     def _image_hook(self, image_info):
-        """Download image, reduced rep (maybe), words (maybe), and store them.
+        """Download image, reduced representation, Neurosynth words.
+
+        Wether reduced representation and Neurosynth words are
+        downloaded depends on ``self.fetch_reduced_rep_`` and
+        ``self.fetch_ns_``.
 
         Parameters
         ----------
         image_info: dict
-        Image metadata.
+            Image metadata.
 
         Returns
         -------
         image_info: dict
-        Image metadata, with local_path, reduced_representation_local_path
-        (if reduced representation available), and neurosynth_words_local_path
-        (if self.fetch_ns_) add to it.
+            Image metadata, with local path to image, local path to
+            reduced representation (if reduced representation
+            available and ``self.fetch_reduced_rep_``), and local path
+            to Neurosynth words (if ``self.fetch_ns_``) added to it.
 
         """
         collection_id = image_info['collection_id']
@@ -1303,12 +1385,18 @@ class DownloadManager(BaseDownloadManager):
         _write_metadata(image_info, metadata_file_path)
         # self.already_downloaded_ is incremented only after
         # this routine returns successfully.
-        _logger.info('already downloaded {} image{}'.format(
+        _logger.info('already fetched {} image{}'.format(
             self.already_downloaded_ + 1,
             ('s' if self.already_downloaded_ + 1 > 1 else '')))
         return image_info
 
     def update_image(self, image_info):
+        """Download Neurosynth words if necessary.
+
+        If ``self.fetch_ns_`` is set and Neurosynth words are not on
+        disk, fetch them and add their location to image metadata.
+
+        """
         image_info = self._add_words(image_info)
         metadata_file_path = os.path.join(
             os.path.dirname(image_info['absolute_path']),
@@ -1317,10 +1405,22 @@ class DownloadManager(BaseDownloadManager):
         return image_info
 
     def start(self):
+        """Prepare for a download session.
+
+        If we don't have a sandbox directory for downloads, create
+        one.
+
+        """
         if self.temp_dir_ is None:
             self.temp_dir_ = _get_temp_dir(self.suggested_temp_dir_)
 
     def finish(self):
+        """Cleanup after downlaod session.
+
+        If ``self.start`` created a temporary directory for the
+        download session, remove it.
+
+        """
         if self.temp_dir_ is None:
             return
         if self.temp_dir_ != self.suggested_temp_dir_:
@@ -1644,7 +1744,7 @@ def _return_same(*args):
 
 class _EmptyContext(object):
 
-    def __enter__(self, *args):
+    def __enter__(self):
         pass
 
     def __exit__(self, *args):
@@ -1741,14 +1841,10 @@ def fetch_neurovault(max_images=None,
             fetch_neurosynth_words=fetch_neurosynth_words)
 
     scroller = _join_local_and_remote(
-        neurovault_dir=neurovault_data_dir,
-        mode=mode,
-        collection_terms=collection_terms,
-        collection_filter=collection_filter,
-        image_terms=image_terms,
-        image_filter=image_filter,
-        download_manager=download_manager,
-        max_images=max_images)
+        neurovault_dir=neurovault_data_dir, mode=mode,
+        collection_terms=collection_terms, collection_filter=collection_filter,
+        image_terms=image_terms, image_filter=image_filter,
+        download_manager=download_manager, max_images=max_images)
 
     scroller = list(scroller)
     if not scroller:
@@ -1761,7 +1857,8 @@ def fetch_neurovault(max_images=None,
     if fetch_neurosynth_words:
         (result['word_frequencies'],
          result['vocabulary']) = neurosynth_words_vectorized(
-             [meta['neurosynth_words_absolute_path'] for meta in images_meta])
+             [meta.get('neurosynth_words_absolute_path') for
+              meta in images_meta])
     return result
 
 
@@ -1803,10 +1900,8 @@ def _get_all_neurovault_keys(max_images=None):
     'for which this field is filled)
 
     """
-    try:
-        meta = _get_all_neurovault_keys.meta_
-    except AttributeError as e:
-        meta = None
+    meta = getattr(_get_all_neurovault_keys, 'meta_', None)
+
     if meta is None:
         im_keys = {}
         coll_keys = {}
@@ -1913,11 +2008,8 @@ def _table_exists(cursor, table_name):
 
 
 def local_database_connection():
-    try:
-        if local_database_connection.connection_ is not None:
-            return local_database_connection.connection_
-    except AttributeError:
-        pass
+    if getattr(local_database_connection, 'connection_', None) is not None:
+        return local_database_connection.connection_
     db_path = neurovault_metadata_db_path()
     local_database_connection.connection_ = sqlite3.connect(db_path)
     local_database_connection.connection_.row_factory = sqlite3.Row
@@ -1994,10 +2086,10 @@ def column_names(cursor, table_name):
     return next(zip(*columns))
 
 
-def read_sql_query(query, as_columns=True, curs=None):
+def read_sql_query(query, bindings=(), as_columns=True, curs=None):
     if curs is None:
         curs = local_database_cursor()
-    curs.execute(query)
+    curs.execute(query, bindings)
     resp = curs.fetchall()
     if not resp:
         return None
