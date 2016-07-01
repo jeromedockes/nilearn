@@ -1429,7 +1429,50 @@ class DownloadManager(BaseDownloadManager):
 
 
 class SQLiteDownloadManager(DownloadManager):
+    """Store Neurovault data; store metadata in an sqlite database.
 
+    All data and metadata is stored as by DownloadManager instances,
+    and (a subset of) the metadata is stored in an sqlite database so
+    that it can be accessed more easily.
+
+    Parameters
+    ----------
+    neurovault_data_dir : str, optional (default=None)
+        The directory we want to use for Neurovault data. This is
+        passed on to _get_dataset_dir, which may result in another
+        directory being used if the one that was specified is not
+        valid.
+
+    max_images : int, optional(default=100)
+        Maximum number of images to fetch. ``None`` or a negative
+        value means download as many as you can.
+
+    temp_dir : str or None, optional (default=None)
+        Sandbox directory for downloads.  if None, a temporary
+        directory is created by ``tempfile.mkdtemp``.
+
+    fetch_neurosynth_words : bool, optional (default=False)
+        Wether to collect words from Neurosynth.
+
+    fetch_reduced_rep : bool, optional (default=True)
+        Wether to download the reduced representations from
+        Neurovault.
+
+    neurosynth_error_handler :
+        Callable, optional (default=_tolerate_failure)
+        What to do when words for an image could not be
+        retrieved. The default value keeps the image anyway and
+        does not raise an error.
+
+    image_fields : Container, optional
+        (default=_IMAGE_BASIC_FIELDS_SQL.keys())
+        Fields of the image metadata to include in sqlite database.
+
+    collection_fields : Container, optional
+        (default=_COLLECTION_BASIC_FIELDS_SQL.keys())
+        Fields of the image metadata to include in sqlite database.
+
+    """
     def __init__(self, image_fields=_IMAGE_BASIC_FIELDS_SQL.keys(),
                  collection_fields=_COLLECTION_BASIC_FIELDS_SQL.keys(),
                  **kwargs):
@@ -1443,12 +1486,26 @@ class SQLiteDownloadManager(DownloadManager):
         self._update_sql_statements()
 
     def _update_sql_statements(self):
+        """Prepare SQL statements used to store metadata."""
         self.im_insert_ = _get_insert_string('images', self.im_fields_)
         self.col_insert_ = _get_insert_string('collections', self.col_fields_)
         self.im_update_ = _get_update_string('images', self.im_fields_)
         self.col_update_ = _get_update_string('collections', self.col_fields_)
 
     def _add_to_collections(self, collection_info):
+        """Add metadata for a collection to 'collections' table
+
+        Parameters
+        ----------
+        collection_info : dict
+            Collection metadata
+
+        Returns
+        -------
+        collection_info : dict
+            Identical to the argument `collection_info`.
+
+        """
         values = [collection_info.get(field) for field in self.col_fields_]
         try:
             self.cursor_.execute(self.col_insert_, values)
@@ -1457,12 +1514,39 @@ class SQLiteDownloadManager(DownloadManager):
         return collection_info
 
     def _collection_hook(self, collection_info):
+        """Create collection subdir and store metadata.
+
+        Parameters
+        ----------
+        collection_info : dict
+            Collection metadata
+
+        Returns
+        -------
+        collection_info : dict
+            Collection metadata, with local path to collection
+            subdirectory added to it.
+
+        """
         collection_info = super(SQLiteDownloadManager, self)._collection_hook(
             collection_info)
         collection_info = self._add_to_collections(collection_info)
         return collection_info
 
     def _add_to_images(self, image_info):
+        """Add metadata for an image to 'images' table
+
+        Parameters
+        ----------
+        image_info : dict
+            Image metadata
+
+        Returns
+        -------
+        image_info : dict
+            Identical to the argument `image_info`.
+
+        """
         values = [image_info.get(field) for field in self.im_fields_]
         try:
             self.cursor_.execute(self.im_insert_, values)
@@ -1471,20 +1555,57 @@ class SQLiteDownloadManager(DownloadManager):
         return image_info
 
     def _image_hook(self, image_info):
+        """Download image, reduced representation, Neurosynth words.
+
+        Wether reduced representation and Neurosynth words are
+        downloaded depends on ``self.fetch_reduced_rep_`` and
+        ``self.fetch_ns_``.
+
+        Parameters
+        ----------
+        image_info: dict
+            Image metadata.
+
+        Returns
+        -------
+        image_info: dict
+            Image metadata, with local path to image, local path to
+            reduced representation (if reduced representation
+            available and ``self.fetch_reduced_rep_``), and local path
+            to Neurosynth words (if ``self.fetch_ns_``) added to it.
+
+        """
         image_info = super(SQLiteDownloadManager, self)._image_hook(
             image_info)
         image_info = self._add_to_images(image_info)
         return image_info
 
     def update_image(self, image_info):
+        """Update database content for an image.
+
+        If ``self.fetch_ns_`` is set and Neurosynth words are not on
+        disk, fetch them and add their location to image metadata.
+
+        """
         super(SQLiteDownloadManager, self).update_image(image_info)
         return self._add_to_images(image_info)
 
     def update_collection(self, collection_info):
+        """Update database content for a collection."""
         super(SQLiteDownloadManager, self).update_collection(collection_info)
         return self._add_to_collections(collection_info)
 
     def start(self):
+        """Prepare for a download session.
+
+        A connection to the local Neurovault database is open and
+        columns are added to its tables if necessary.
+
+        See Also
+        --------
+        SQLiteDownloadManager._update_schema
+
+        """
         super(SQLiteDownloadManager, self).start()
         _logger.debug('starting download manager')
         self.connection_ = local_database_connection()
@@ -1492,6 +1613,15 @@ class SQLiteDownloadManager(DownloadManager):
         self._update_schema()
 
     def _update_schema(self):
+        """Create or alter a database so it contains the required tables.
+
+        If a database already exists, the required columns
+        (``self.im_fields_`` and ``self.col_fields_``) are added to
+        its tables if absent. Existing columns are not dropped and
+        will also be filled during the download session. If no
+        database exists, it is created.
+
+        """
         if not _nv_schema_exists(self.cursor_):
             self.cursor_ = _create_schema(
                 self.cursor_, self.im_fields_, self.col_fields_)
@@ -1522,6 +1652,11 @@ class SQLiteDownloadManager(DownloadManager):
         return
 
     def finish(self):
+        """Cleanup after a download session.
+
+        Commit changes and close database connection.
+
+        """
         super(SQLiteDownloadManager, self).finish()
         if self.connection_ is None:
             return
@@ -1532,6 +1667,54 @@ class SQLiteDownloadManager(DownloadManager):
 def _scroll_collection(collection, image_terms, image_filter, batch_size,
                        download_manager,
                        previous_consecutive_fails, max_consecutive_fails):
+    """Iterate over the content of a collection on Neurovault server.
+
+    Parameters
+    ----------
+    collection : dict
+        The collection metadata.
+
+    image_terms : dict
+        Key, value pairs used to filter image metadata. Images for
+        which ``image_metadata['key'] == value`` is not ``True`` for
+        every key, value pair will be ignored.
+
+    image_filter : Callable
+        Images for which `image_filter(image_metadata)` is ``False``
+        will be ignored.
+
+    batch_size : int
+        Neurovault sends metadata in batches. `batch_size` is the size
+        of the batches to ask for.
+
+    previous_consecutive_fails : int
+        How many images have failed to be downloaded since last
+        successful download.
+
+    max_consecutive_fails : int
+        If more than `max_consecutive_fails` images in a row fail to
+        be downloaded, we consider there is a problem and stop the
+        download session.
+
+    Yields
+    ------
+    image : dict
+        Metadata for an image.
+
+    consecutive_fails : int
+        How many images have failed to be downloaded since last
+        successful download.
+
+    Raises
+    ------
+    MaxImagesReached
+        If enough images have been downloaded.
+
+    RuntimeError
+        If more than `max_consecutive_fails` images have failed in a
+        row.
+
+    """
     n_im_in_collection = 0
     consecutive_fails = previous_consecutive_fails
     query = urljoin(_NEUROVAULT_COLLECTIONS_URL,
@@ -1574,7 +1757,66 @@ def _scroll_server_data(collection_query_terms={},
                         image_query_terms={}, image_local_filter=_empty_filter,
                         download_manager=None, max_images=None,
                         metadata_batch_size=None, max_consecutive_fails=5):
-    """Return a generator iterating over neurovault.org results for a query."""
+    """Iterate over neurovault.org results for a query.
+
+    Parameters
+    ----------
+    collection_query_terms : dict
+        Key, value pairs used to filter collection
+        metadata. Collections for which
+        ``collection_metadata['key'] == value`` is not ``True``
+        for every key, value pair will be ignored.
+
+    collection_local_filter : Callable
+        Collections for which
+        `collection_local_filter(collection_metadata)` is ``False``
+        will be ignored.
+
+    image_query_terms : dict
+        Key, value pairs used to filter image metadata. Images for
+        which ``image_metadata['key'] == value`` is not ``True`` for
+        every key, value pair will be ignored.
+
+    image_local_filter : Callable
+        Images for which `image_local_filter(image_metadata)` is
+        ``False`` will be ignored.
+
+    download_manager : BaseDownloadManager, optional (default=None)
+        The download manager used to handle data from neurovault.org.
+        If None, one is constructed.
+
+    max_images : int, optional (default=None)
+        Maximum number of images to download; only used if
+        `download_manager` is None.
+
+    metadata_batch_size : int, optional(default=None)
+        Neurovault sends metadata in batches. `batch_size` is the size
+        of the batches to ask for. If ``None``, the default
+        ``_DEFAULT_BATCH_SIZE`` will be used.
+
+    max_consecutive_fails : int
+        If more than `max_consecutive_fails` images in a row fail to
+        be downloaded, we consider there is a problem and stop the
+        download session.
+
+    Yields
+    ------
+    image : dict
+        Metadata for an image.
+
+    collection : dict
+        Metadata for the image's collection.
+
+    Raises
+    ------
+    MaxImagesReached
+        If enough images have been downloaded.
+
+    RuntimeError
+        If more than `max_consecutive_fails` images have failed in a
+        row.
+
+    """
     if download_manager is None:
         download_manager = BaseDownloadManager(max_images=max_images)
 
@@ -1627,7 +1869,7 @@ def _json_add_collection_dir(file_name, force=True):
 
 
 def _json_add_im_files_paths(file_name, force=True):
-    """Load a json file and add its path to resulting dict."""
+    """Load a json file and add image, reduced rep and words paths"""
     loaded = _json_from_file(file_name)
     set_func = loaded.__setitem__ if force else loaded.setdefault
     dir_path = os.path.dirname(file_name)
@@ -1652,7 +1894,34 @@ def _scroll_local_data(neurovault_dir,
                        collection_filter=_empty_filter,
                        image_filter=_empty_filter,
                        max_images=None):
-    """Get an iterator over local neurovault data matching a query."""
+    """Iterate over local Neurovault data matching a query.
+
+    Parameters
+    ----------
+    neurovault_dir : str
+        Path to Neurovault data directory.
+
+    collection_filter : Callable
+        Collections for which
+        `collection_local_filter(collection_metadata)` is ``False``
+        will be ignored.
+
+    image_filter : Callable
+        Images for which `image_local_filter(image_metadata)` is
+        ``False`` will be ignored.
+
+    max_images : int, optional (default=None)
+        Maximum number of images' metadata to load
+
+    Yields
+    ------
+    image : dict
+        Metadata for an image.
+
+    collection : dict
+        Metadata for the image's collection.
+
+    """
     if max_images is not None and max_images < 0:
         max_images = None
     found_images = 0
@@ -1682,7 +1951,13 @@ def _split_terms(terms, available_on_server):
 
 def _move_unknown_terms_to_local_filter(terms, local_filter,
                                         available_on_server):
-    """Move filters handled by the server inside url."""
+    """Move filters handled by the server inside URL.
+
+    Some filters are available on the server and can be inserted into
+    the URL query. The rest will have to be applied on metadata
+    locally.
+
+    """
     local_terms, server_terms = _split_terms(terms, available_on_server)
     local_filter = local_filter & ResultFilter(query_terms=local_terms)
     return server_terms, local_filter
@@ -1691,7 +1966,7 @@ def _move_unknown_terms_to_local_filter(terms, local_filter,
 def _prepare_local_scroller(neurovault_dir, collection_terms,
                             collection_filter, image_terms,
                             image_filter, max_images):
-    """Construct filters for call to _scroll_local_data."""
+    """Construct filters for call to ``_scroll_local_data``."""
     collection_local_filter = (collection_filter &
                                ResultFilter(**collection_terms))
     image_local_filter = (image_filter &
@@ -1708,7 +1983,7 @@ def _prepare_remote_scroller(collection_terms, collection_filter,
                              image_terms, image_filter,
                              collection_ids, image_ids,
                              download_manager, max_images):
-    """Construct filters for call to _scroll_server_data."""
+    """Construct filters for call to ``_scroll_server_data``."""
     collection_terms, collection_filter = _move_unknown_terms_to_local_filter(
         collection_terms, collection_filter,
         _COL_FILTERS_AVAILABLE_ON_SERVER)
@@ -1757,7 +2032,66 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
                            collection_filter=_empty_filter,
                            image_terms={}, image_filter=_empty_filter,
                            download_manager=None, max_images=None):
-    """Iterate over results from disk, then those found on neurovault.org"""
+    """Iterate over results from disk, then those found on neurovault.org
+
+    Parameters
+    ----------
+    neurovault_dir : str
+        Path to Neurovault data directory.
+
+    mode : {'download_new', 'overwrite', 'offline'}
+        - 'download_new' (the default) means download only files that
+          are not already on disk.
+        - 'overwrite' means ignore files on disk and overwrite them.
+        - 'offline' means load only data from disk; don't query server.
+
+    collection_terms : dict, optional (default={})
+        Key, value pairs used to filter collection
+        metadata. Collections for which
+        ``collection_metadata['key'] == value`` is not ``True``
+        for every key, value pair will be ignored.
+
+    collection_filter : Callable, optional (default=_empty_filter)
+        Collections for which
+        `collection_local_filter(collection_metadata)` is ``False``
+        will be ignored.
+
+    image_terms : dict, optional (default={})
+        Key, value pairs used to filter image metadata. Images for
+        which ``image_metadata['key'] == value`` is not ``True`` for
+        every key, value pair will be ignored.
+
+    image_filter : Callable, optional (default=_empty_filter)
+        Images for which `image_local_filter(image_metadata)` is
+        ``False`` will be ignored.
+
+    download_manager : BaseDownloadManager, optional (default=None)
+        The download manager used to handle data from neurovault.org.
+        If None, one is constructed if required (i.e. we are not
+        working offline).
+
+    max_images : int, optional (default=None)
+        Maximum number of images to download; only used if
+        `download_manager` is None.
+
+    Yields
+    ------
+    image : dict
+        Metadata for an image.
+
+    collection : dict
+        Metadata for the image's collection.
+
+    Notes
+    -----
+    Images and collections from disk are fetched before remote data.
+
+    Tries to yield `max_images` images; stops early if we have fetched
+    all the images matching the filters or if an uncaught exception is
+    raised during download
+
+    """
+    mode = mode.lower()
     if mode not in ['overwrite', 'download_new', 'offline']:
         raise ValueError(
             'supported modes are overwrite,'
@@ -1771,7 +2105,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
             neurovault_dir, collection_terms, collection_filter,
             image_terms, image_filter, max_images)
         context = (download_manager if download_manager is not None
-                   else _EmptyContext)
+                   else _EmptyContext())
         update = (download_manager.update if download_manager is not None
                   else _return_same)
         with context:
@@ -1814,6 +2148,28 @@ def basic_image_terms():
     return {'not_mni': False, 'is_valid': True, 'is_thresholded': False}
 
 
+def _move_col_id(im_terms, col_terms):
+    """Reposition 'collection_id' term.
+
+    If the collection id was specified in image filters, move it to
+    the collection filters for efficiency.
+
+    This makes specifying the collection id as a keyword argument for
+    fetch_neurovault efficient.
+
+    """
+    if 'collection_id' in im_terms:
+        if 'id' not in col_terms:
+            col_terms['id'] = im_terms.pop('collection_id')
+        elif col_terms['id'] == im_terms['collection_id']:
+            im_terms.pop('collection_id')
+        else:
+            warnings.warn('You specified contradictory collection ids, '
+                          'one in the image filters and one in the '
+                          'collection filters')
+    return im_terms, col_terms
+
+
 # TODO: finish docstring
 def fetch_neurovault(max_images=None,
                      collection_terms=basic_collection_terms(),
@@ -1824,8 +2180,132 @@ def fetch_neurovault(max_images=None,
                      neurovault_data_dir=None,
                      fetch_neurosynth_words=False,
                      download_manager=None, **kwargs):
-    """Download data from neurovault.org and neurosynth.org."""
+    """Download data from neurovault.org and neurosynth.org.
+
+    Parameters
+    ----------
+    max_images : int, optional (default=None)
+        Maximum number of images to fetch.
+
+    collection_terms : dict, optional (default=basic_collection_terms())
+        Key, value pairs used to filter collection
+        metadata. Collections for which
+        ``collection_metadata['key'] == value`` is not ``True``
+        for every key, value pair will be ignored.
+
+    collection_filter : Callable, optional (default=_empty_filter)
+        Collections for which
+        `collection_local_filter(collection_metadata)` is ``False``
+        will be ignored.
+
+    image_terms : dict, optional (default=basic_image_terms())
+        Key, value pairs used to filter image metadata. Images for
+        which ``image_metadata['key'] == value`` is not ``True`` for
+        every key, value pair will be ignored.
+
+    image_filter : Callable, optional (default=_empty_filter)
+        Images for which `image_local_filter(image_metadata)` is
+        ``False`` will be ignored.
+
+    mode : {'download_new', 'overwrite', 'offline'}
+        - 'download_new' (the default) means download only files that
+          are not already on disk.
+        - 'overwrite' means ignore files on disk and overwrite them.
+        - 'offline' means load only data from disk; don't query server.
+
+    neurovault_dir : str, optional (default=None)
+        The directory we want to use for Neurovault data. Another
+        directory may be used if the one that was specified is not
+        valid.
+
+    neurovault_data_dir : str
+        Path to Neurovault data directory.
+
+    fetch_neurosynth_words : bool, optional (default=False)
+        Wether to collect words from Neurosynth.
+
+    download_manager : BaseDownloadManager, optional (default=None)
+        The download manager used to handle data from neurovault.org.
+        If None, one is constructed (an SQLiteDownloadManager).
+
+    Keyword arguments are understood to be filter terms for images, so
+    for example ``map_type='Z map'`` means only download Z-maps;
+    ``collection_id=35`` means download images from collection 35
+    only.
+
+    Returns
+    -------
+    Bunch
+        A dict-like object which exposes its items as attributes.  It
+        contains:
+            - 'images', the paths to downloaded files.
+            - 'images_meta', the metadata for the images in a list of
+            dictionaries.
+            - 'collections_meta', the metadata for the
+            collections.
+
+        If `fetch_neurosynth_words` was set, it also
+        contains:
+            - 'vocabulary', a list of words
+            - 'word_frequencies', the weight of the words returned by
+            neurosynth.org for each image, such that the weight of word
+            `vocabulary[j]` for the image found in `images[i]` is
+            `word_frequencies[i, j]`
+
+    See Also
+    --------
+    basic_image_terms
+        The terms on which images are filtered by default.
+
+    basic_collection_terms
+        The terms on which collections are filtered by default.
+
+    DownloadManager, SQLiteDownloadManager
+        Possible handlers for the downloaded data.
+
+    Some authors have included many fields in the metadata they
+    provide; in order to make it easier to figure out which fields are
+    used by most authors and which are interesting to you, these
+    functions could be of help:
+
+    plot_fields_occurrences
+        Show a bar plot of how many images (resp collections) use a
+        particular image (resp collection) metadata field.
+
+    show_neurovault_image_keys, show_neurovault_collection_keys
+        Show the field names that were seen in metadata and the types
+        of the values that were associated to them. For this
+        information, you can also have a look at the module-level
+        variables _IMAGE_BASIC_FIELDS, _COLLECTION_BASIC_FIELDS,
+        _ALL_COLLECTION_FIELDS and _ALL_IMAGE_FIELDS.
+
+    Notes
+    -----
+    The default behaviour is to store the most important fields (which
+    you can define) of metadata in an ``sqlite`` database, which is
+    actually just a file but can be queried like an SQL database. So
+    in addition to the ``Bunch`` returned by this function, if you
+    find it more convenient, you can access the data through this
+    other interface.
+
+    Images and collections from disk are fetched before remote data.
+
+    Tries to yield `max_images` images; stops early if we have fetched
+    all the images matching the filters or if an uncaught exception is
+    raised during download
+
+    References
+    ----------
+    [1] Gorgolewski KJ, Varoquaux G, Rivera G, Schwartz Y, Ghosh SS,
+        Maumet C, Sochat VV, Nichols TE, Poldrack RA, Poline J-B,
+        Yarkoni T and Margulies DS (2015) NeuroVault.org: a web-based
+        repository for collecting and sharing unthresholded
+        statistical maps of the human brain. Front. Neuroinform. 9:8.
+        doi: 10.3389/fninf.2015.00008
+
+    """
     image_terms = dict(image_terms, **kwargs)
+    image_terms, collection_terms = _move_col_id(image_terms, collection_terms)
 
     neurovault_data_dir = neurovault_directory(neurovault_data_dir)
     if mode != 'offline' and not os.access(neurovault_data_dir, os.W_OK):
@@ -1863,6 +2343,16 @@ def fetch_neurovault(max_images=None,
 
 
 def refresh_db(*args, **kwargs):
+    """Update local database with metadata cached in json files.
+
+    This is mostly called automatically so that the database is always
+    up-to-date, but it can be used by a user to add columns to tables.
+
+    See Also
+    --------
+    SQLiteDownloadManager
+
+    """
     _logger.debug('refreshing local database')
     download_manager = SQLiteDownloadManager(*args, **kwargs)
     fetch_neurovault(image_terms={}, collection_terms={},
@@ -1886,18 +2376,18 @@ def _get_all_neurovault_keys(max_images=None):
     Parameters
     ----------
     max_images: int, optional (default=None)
-    stop after seeing metadata for max_images images.
-    If None, read metadata for all images and collections.
+        stop after seeing metadata for max_images images.  If None,
+        read metadata for all images and collections.
 
     Returns
     -------
     meta: tuple(dict, dict)
-    The first element contains info about image metadata fields,
-    the second element about collection metadata fields.
-    The image metadata (resp. collection metadata) dict contains '
-    ' pairs of the form:
-    field_name: (type, number of images (resp. collections) '
-    'for which this field is filled)
+        The first element contains info about image metadata fields,
+        the second element about collection metadata fields.
+        The image metadata (resp. collection metadata) dict contains '
+        ' pairs of the form:
+        field_name: (type, number of images (resp. collections) '
+        'for which this field is filled)
 
     """
     meta = getattr(_get_all_neurovault_keys, 'meta_', None)
@@ -1918,16 +2408,62 @@ def _get_all_neurovault_keys(max_images=None):
 
 
 def show_neurovault_image_keys(max_images=300):
-    """Display keys found in Neurovault metadata for images."""
+    """Display keys found in Neurovault metadata for images.
+
+    The results are displayed as many lines of the form:
+
+    field_name: (type, number of images that have filled this field)
+
+    Parameters
+    ----------
+    max_images: int, optional (default=None)
+        stop after seeing metadata for max_images images.  If None,
+        read metadata for all images and collections.
+
+    Returns
+    -------
+    None
+
+    """
     pprint(_get_all_neurovault_keys(max_images)[0])
 
 
 def show_neurovault_collection_keys(max_images=300):
-    """Display keys found in Neurovault metadata for collections."""
+    """Display keys found in Neurovault metadata for collections.
+
+    The results are displayed as many lines of the form:
+
+    field_name: (type, number of collections that have filled this field)
+
+    Parameters
+    ----------
+    max_images: int, optional (default=None)
+        stop after seeing metadata for max_images images.  If None,
+        read metadata for all images and collections.
+
+    Returns
+    -------
+    None
+
+    """
     pprint(_get_all_neurovault_keys(max_images)[1])
 
 
 def _which_keys_are_unused(max_images=None):
+    """Find which metadata fields are never filled.
+
+    Parameters
+    ----------
+    max_images: int, optional (default=None)
+        stop after seeing metadata for max_images images.  If None,
+        read metadata for all images and collections.
+
+    Returns
+    -------
+    im_unused, coll_unused
+        ``set`` objects of field names which are unused.
+
+    """
     im_keys, coll_keys = _get_all_neurovault_keys(max_images)
     im_unused, coll_unused = set(), set()
     for k, v in im_keys.items():
@@ -1941,6 +2477,7 @@ def _which_keys_are_unused(max_images=None):
 
 def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
                            fontsize='x-large', **kwargs):
+    """Helper function for ``plot_fields_occurrences``"""
     if ax is None:
         fig = plt.figure()
         ax = fig.gca()
@@ -1957,6 +2494,7 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
 
 
 def _prepare_subplots_fields_occurrences():
+    """Helper function for ``plot_fields_occurrences``"""
     gs_im = GridSpec(1, 1, bottom=.65, top=.95)
     gs_col = GridSpec(1, 1, bottom=.2, top=.5)
     ax_im = plt.subplot(gs_im[:])
@@ -1967,6 +2505,7 @@ def _prepare_subplots_fields_occurrences():
 
 
 def plot_fields_occurrences(max_images=300, **kwargs):
+    """Draw a histogram of how often metadata fields are filled."""
     all_keys = _get_all_neurovault_keys(max_images)
     axis_arr = _prepare_subplots_fields_occurrences()
     for table, ax in zip(all_keys, axis_arr):
@@ -1974,6 +2513,12 @@ def plot_fields_occurrences(max_images=300, **kwargs):
 
 
 def _filter_field_names(required_fields, ref_fields):
+    """Keep the fields that are present in a reference set.
+
+    Used to select only known fields, find the type that is associated
+    to them, and control what can be inserted in an SQL statement.
+
+    """
     filtered = OrderedDict()
     for field_name in required_fields:
         if field_name in ref_fields:
@@ -1985,12 +2530,19 @@ def _filter_field_names(required_fields, ref_fields):
 
 
 def _get_columns_string(required_fields, ref_fields):
+    """Prepare a string describing columns for an SQL table.
+
+    Only fields present in `ref_fields` are accepted; only elements of
+    a predetermined set of strings are inserted in this string.
+
+    """
     fields = ['{} {}'.format(n, v) for
               n, v in _filter_field_names(required_fields, ref_fields).items()]
     return ', '.join(fields)
 
 
 def _get_insert_string(table_name, fields):
+    """Prepare an SQL INSERT INTO statement."""
     return "INSERT INTO {} ({}) VALUES ({})".format(
         table_name,
         ', '.join(fields),
@@ -1998,6 +2550,7 @@ def _get_insert_string(table_name, fields):
 
 
 def _get_update_string(table_name, fields):
+    """Prepare an SQL UPDATE statement."""
     set_str = ','.join(["{}=:{}".format(field, field) for field in fields])
     return "UPDATE {} SET {} WHERE id=:id".format(table_name, set_str)
 
@@ -2008,6 +2561,16 @@ def _table_exists(cursor, table_name):
 
 
 def local_database_connection():
+    """Get access to the local sqlite database holding Neurovault metadata.
+
+    This is for users who find SQL syntax more convenient than
+    manipulating python dicts. It can also be useful to users who also
+    use ``pandas``, as they can very easily load Neurovault metadata
+    into a ``pandas.DataFrame`` object:
+
+    df = pd.read_sql_query('SELECT * FROM images', local_database_connection())
+
+    """
     if getattr(local_database_connection, 'connection_', None) is not None:
         return local_database_connection.connection_
     db_path = neurovault_metadata_db_path()
@@ -2022,6 +2585,7 @@ def local_database_cursor():
 
 @atexit.register
 def close_database_connection(log_fun=_logger.info):
+    """Commit changes and close local database if necessary."""
     try:
         local_database_connection.connection_.commit()
         local_database_connection.connection_.close()
@@ -2036,6 +2600,23 @@ def close_database_connection(log_fun=_logger.info):
 
 def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
                    col_fields=_COLLECTION_BASIC_FIELDS):
+    """Create images and collections tables in an sqlite database.
+
+    Only elements from _ALL_COLLECTION_FIELDS_SQL and
+    _ALL_IMAGE_FIELDS_SQL will actually be used.
+
+    Parameters:
+    ----------
+    cursor : sqlite3.Cursor
+        Cursor for the database.
+
+    im_fields : Container, optional (default=_IMAGE_BASIC_FIELDS)
+        Columns to include in images table.
+
+    col_fields : Container, optional (default=_COLLECTION_BASIC_FIELDS)
+        Columns to include in collections table.
+
+    """
     im_fields = copy(im_fields)
     col_fields = copy(col_fields)
     im_fields.pop('id', None)
@@ -2065,6 +2646,11 @@ def _nv_schema_exists(cursor):
 
 
 def table_info(cursor, table_name):
+    """Find out about the columns of a table and the type affinities.
+
+    Also returns (part of) the statement used to create the table.
+
+    """
     cursor.execute("SELECT sql FROM sqlite_master "
                    "WHERE tbl_name=? AND type='table'", (table_name,))
     table_statement = cursor.fetchone()[0]
@@ -2080,6 +2666,7 @@ def table_info(cursor, table_name):
 
 
 def column_names(cursor, table_name):
+    """Return the column names and their type affinities for a table."""
     columns = table_info(cursor, table_name)[1]
     if columns is None:
         return None
@@ -2087,6 +2674,50 @@ def column_names(cursor, table_name):
 
 
 def read_sql_query(query, bindings=(), as_columns=True, curs=None):
+    """Get response from local Neurovault database for an SQL query.
+
+    Parameters
+    ----------
+    query : str
+        The query (may include place holders for parameter
+        substitution).
+
+    bindings : tuple or dict, optional (default=())
+        The bindings for the place holders, if any were used in the
+        query (tuple if question mark style, dict if named style; see
+        ``sqlite3`` documentation).
+
+    as_columns: bool, optional (default=True)
+        If ``False``, return the result as a list of ``sqlite3.Row``
+        objects (can be indexed with indices, or as dictionaries with
+        the column names, see sqlite3 doc.)
+        If ``True``, transpose the result and return it as an ordered
+        dictionary of columns. In this case each key in the dictionary
+        is a column name (or alias if specified in the query), and the
+        corresponding value is a one-dimensional numpy array.
+
+    Returns
+    -------
+    response : OrderedDict or list
+        The result of the query, as a dictionary of columns or a list
+        of rows.
+
+    See Also
+    --------
+    sqlite3
+
+    Examples
+    --------
+    >>> data = read_sql_query('SELECT images.id AS image_id, '
+                              'images.absolute_path AS image_path, '
+                              'collections.id AS collection_id, '
+                              'collections.DOI FROM images '
+                              'INNER JOIN collections ON '
+                              'images.collection_id=collections.id')
+
+    >>> print(list(data.keys()))
+
+    """
     if curs is None:
         curs = local_database_cursor()
     curs.execute(query, bindings)

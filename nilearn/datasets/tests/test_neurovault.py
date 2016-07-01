@@ -287,7 +287,7 @@ def test_add_absolute_paths():
 
 
 def test_DownloadManager():
-    with _TemporaryDirectory() as data_temp_dir:
+    with _TemporaryDirectory():
         download_manager = nv.DownloadManager()
         with download_manager:
             temp_dir = download_manager.temp_dir_
@@ -296,7 +296,7 @@ def test_DownloadManager():
 
 
 def test_SQLiteDownloadManager():
-    with _TemporaryDirectory() as data_temp_dir:
+    with _TemporaryDirectory():
         download_manager = nv.SQLiteDownloadManager()
         with download_manager:
             assert_false(download_manager.connection_ is None)
@@ -336,7 +336,7 @@ def test_move_unknown_terms_to_local_filter():
 
 
 def test_fetch_neurovault():
-    with _TemporaryDirectory() as data_temp_dir:
+    with _TemporaryDirectory():
         data = nv.fetch_neurovault(max_images=1, fetch_neurosynth_words=True)
         if data is not None:
             assert_equal(len(data.images), 1)
@@ -346,6 +346,18 @@ def test_fetch_neurovault():
                 'SELECT id, absolute_path FROM images WHERE id=?',
                 (meta['id'],))
             assert_equal(db_data['absolute_path'][0], meta['absolute_path'])
+
+
+def test_move_col_id():
+    im_terms, col_terms = nv._move_col_id(
+        {'collection_id': 1, 'not_mni': False}, {})
+    assert_equal(im_terms, {'not_mni': False})
+    assert_equal(col_terms, {'id': 1})
+
+    im_terms, col_terms = nv._move_col_id(
+        {'collection_id': 1, 'not_mni': False}, {'id': 2})
+    assert_equal(im_terms, {'not_mni': False, 'collection_id': 1})
+    assert_equal(col_terms, {'id': 2})
 
 
 # TODO: remove this
