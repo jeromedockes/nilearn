@@ -542,16 +542,16 @@ def _scroll_server_results(url, local_filter=_empty_filter,
                 yield result
 
 
-class NotNull(object):
-    """Special value used to filter terms.
+class _SpecialValue(object):
+    """Base class for special values used to filter terms.
 
-    An instance of this class will always be equal to, and only to,
-    any non-zero value of any type (by non-zero we mean for which bool
-    returns True).
+    Derived classes should override ``__eq__`` in order to create
+    objects that can be used for comparisons to particular sets of
+    values in filters.
 
     """
     def __eq__(self, other):
-        return bool(other)
+        raise NotImplementedError('Use a derived class for _SpecialValue')
 
     def __req__(self, other):
         return self.__eq__(other)
@@ -563,7 +563,31 @@ class NotNull(object):
         return self.__ne__(other)
 
 
-class NotEqual(object):
+class IsNull(_SpecialValue):
+    """Special value used to filter terms.
+
+    An instance of this class will always be equal to, and only to,
+    any null value of any type (by null we mean for which bool
+    returns False).
+
+    """
+    def __eq__(self, other):
+        return not bool(other)
+
+
+class NotNull(_SpecialValue):
+    """Special value used to filter terms.
+
+    An instance of this class will always be equal to, and only to,
+    any non-zero value of any type (by non-zero we mean for which bool
+    returns True).
+
+    """
+    def __eq__(self, other):
+        return bool(other)
+
+
+class NotEqual(_SpecialValue):
     """Special value used to filter terms.
 
     An instance of this class is constructed with `NotEqual(obj)`. It
@@ -583,17 +607,8 @@ class NotEqual(object):
     def __eq__(self, other):
         return not self.negated_ == other
 
-    def __req__(self, other):
-        return self.__eq__(other)
 
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def __rne__(self, other):
-        return self.__ne__(other)
-
-
-class IsIn(object):
+class IsIn(_SpecialValue):
     """Special value used to filter terms.
 
     An instance of this class is constructed with
@@ -614,14 +629,27 @@ class IsIn(object):
     def __eq__(self, other):
         return other in self.accepted_
 
-    def __req__(self, other):
-        return self.__eq__(other)
 
-    def __ne__(self, other):
-        return not self.__eq__(other)
+class NotIn(_SpecialValue):
+    """Special value used to filter terms.
 
-    def __rne__(self, other):
-        return self.__ne__(other)
+    An instance of this class is constructed with
+    `NotIn(container)`. It will allways be equal to, and only to, any
+    value for which ``value in container`` is ``False``.
+
+    Parameters
+    ----------
+    rejected : container
+        By container we mean any type which exposes a __contains__
+        method. A value will pass through the filter if it is absent
+        from `rejected`.
+
+    """
+    def __init__(self, rejected):
+        self.rejected_ = rejected
+
+    def __eq__(self, other):
+        return other not in self.rejected_
 
 
 class ResultFilter(object):
@@ -633,8 +661,8 @@ class ResultFilter(object):
     to be used as ``image_filter`` or ``collection_filter`` parameters
     for ``fetch_neurovault``.
 
-    Such filters can be combined using the logical operators ``|``,
-    ``&``, ``^``, ``not``, with the usual semantics.
+    Such filters can be combined using their methods ``AND``, ``OR``,
+    ``XOR``, and ``NOT``, with the usual semantics.
 
     Key-value pairs can be added by treating a ``ResultFilter`` as a
     dictionary: after evaluating ``res_filter[key] = value``, only
@@ -674,6 +702,12 @@ class ResultFilter(object):
     satisfies all the `query_terms` AND all the elements of
     `callable_filters_`.
 
+    Examples
+    --------
+    >>> filt = ResultFilter(a=0).AND(ResultFilter(b=1).OR(ResultFilter(b=2)))
+    >>> filt({'a': 0, 'b': 1})
+    >>> filt({'a': 0, 'b': 0})
+
     """
 
     def __init__(self, query_terms={},
@@ -706,34 +740,25 @@ class ResultFilter(object):
                 return False
         return True
 
-    def __or__(self, other_filter):
+    def OR(self, other_filter):
         filt1, filt2 = deepcopy(self), deepcopy(other_filter)
         new_filter = ResultFilter(
             callable_filter=lambda r: filt1(r) or filt2(r))
         return new_filter
 
-    def __ror__(self, other_filter):
-        return self.__or__(other_filter)
-
-    def __and__(self, other_filter):
+    def AND(self, other_filter):
         filt1, filt2 = deepcopy(self), deepcopy(other_filter)
         new_filter = ResultFilter(
             callable_filter=lambda r: filt1(r) and filt2(r))
         return new_filter
 
-    def __rand__(self, other_filter):
-        return self.__and__(other_filter)
-
-    def __xor__(self, other_filter):
+    def XOR(self, other_filter):
         filt1, filt2 = deepcopy(self), deepcopy(other_filter)
         new_filter = ResultFilter(
-            callable_filter=lambda r: filt1(r) ^ filt2(r))
+            callable_filter=lambda r: filt1(r) != filt2(r))
         return new_filter
 
-    def __rxor__(self, other_filter):
-        return self.__xor__(other_filter)
-
-    def __invert__(self):
+    def NOT(self):
         filt = deepcopy(self)
         new_filter = ResultFilter(
             callable_filter=lambda r: not filt(r))
@@ -1944,8 +1969,9 @@ def _scroll_local_data(neurovault_dir,
 def _split_terms(terms, available_on_server):
     """Isolate term filters that can be applied by server."""
     terms_ = dict(terms)
-    server_terms = {k: terms_.pop(k) for
-                    k in available_on_server.intersection(terms_.keys())}
+    server_terms = {k: terms_.pop(k) for k in
+                    available_on_server.intersection(terms_.keys()) if
+                    isinstance(terms_[k], str) or isinstance(terms_[k], int)}
     return terms_, server_terms
 
 
@@ -1959,7 +1985,7 @@ def _move_unknown_terms_to_local_filter(terms, local_filter,
 
     """
     local_terms, server_terms = _split_terms(terms, available_on_server)
-    local_filter = local_filter & ResultFilter(query_terms=local_terms)
+    local_filter = ResultFilter(query_terms=local_terms).AND(local_filter)
     return server_terms, local_filter
 
 
@@ -1967,10 +1993,9 @@ def _prepare_local_scroller(neurovault_dir, collection_terms,
                             collection_filter, image_terms,
                             image_filter, max_images):
     """Construct filters for call to ``_scroll_local_data``."""
-    collection_local_filter = (collection_filter &
-                               ResultFilter(**collection_terms))
-    image_local_filter = (image_filter &
-                          ResultFilter(**image_terms))
+    collection_local_filter = ResultFilter(
+        **collection_terms).AND(collection_filter)
+    image_local_filter = ResultFilter(**image_terms).AND(image_filter)
     local_data = _scroll_local_data(
         neurovault_dir, collection_filter=collection_local_filter,
         image_filter=image_local_filter, max_images=max_images)
@@ -1988,15 +2013,14 @@ def _prepare_remote_scroller(collection_terms, collection_filter,
         collection_terms, collection_filter,
         _COL_FILTERS_AVAILABLE_ON_SERVER)
 
-    collection_filter = collection_filter & ResultFilter(
-        callable_filter=lambda c: c['id'] not in collection_ids)
+    collection_filter = ResultFilter(
+        id=NotIn(collection_ids)).AND(collection_filter)
 
     image_terms, image_filter = _move_unknown_terms_to_local_filter(
         image_terms, image_filter,
         _IM_FILTERS_AVAILABLE_ON_SERVER)
 
-    image_filter = image_filter & ResultFilter(
-        callable_filter=lambda i: i['id'] not in image_ids)
+    image_filter = ResultFilter(id=NotIn(image_ids)).AND(image_filter)
 
     if download_manager is not None:
         download_manager.already_downloaded_ = len(image_ids)

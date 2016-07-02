@@ -83,6 +83,18 @@ def test_scroll_server_results():
     assert_equal(len(result), 0)
 
 
+def test_IsNull():
+    is_null = nv.IsNull()
+    assert_true(is_null != 'a')
+    assert_false(is_null != '')
+    assert_true('a' != is_null)
+    assert_false('' != is_null)
+    assert_false(is_null == 'a')
+    assert_true(is_null == '')
+    assert_false('a' == is_null)
+    assert_true('' == is_null)
+
+
 def test_NotNull():
     not_null = nv.NotNull()
     assert_true(not_null == 'a')
@@ -123,6 +135,18 @@ def test_IsIn():
     assert_true(2 != is_in)
 
 
+def test_NotIn():
+    not_in = nv.NotIn({0, 1})
+    assert_true(not_in != 0)
+    assert_false(not_in != 2)
+    assert_true(0 != not_in)
+    assert_false(2 != not_in)
+    assert_false(not_in == 0)
+    assert_true(not_in == 2)
+    assert_false(0 == not_in)
+    assert_true(2 == not_in)
+
+
 def test_ResultFilter():
     filter_0 = nv.ResultFilter(query_terms={'a': 0},
                                callable_filter=lambda d: len(d) < 5,
@@ -140,7 +164,7 @@ def test_ResultFilter():
     filter_1['d'] = nv.IsIn({0, 1})
     assert_true(filter_1({'c': 2, 'd': 1}))
     assert_false(filter_1({'c': 2, 'd': 2}))
-    filter_1['d'] = nv.NotEqual(nv.IsIn({0, 1}))
+    filter_1['d'] = nv.NotIn({0, 1})
     assert_false(filter_1({'c': 2, 'd': 1}))
     assert_true(filter_1({'c': 2, 'd': 3}))
     filter_1.add_filter(lambda d: len(d) > 2)
@@ -152,26 +176,31 @@ def test_ResultFilter_combinations():
     filter_0 = nv.ResultFilter(a=0, b=1)
     filter_1 = nv.ResultFilter(c=2, d=3)
 
-    filter_0_and_1 = filter_0 & filter_1
+    filter_0_and_1 = filter_0.AND(filter_1)
     assert_true(filter_0_and_1({'a': 0, 'b': 1, 'c': 2, 'd': 3}))
     assert_false(filter_0_and_1({'a': 0, 'b': 1, 'c': 2, 'd': None}))
     assert_false(filter_0_and_1({'a': None, 'b': 1, 'c': 2, 'd': 3}))
 
-    filter_0_or_1 = filter_0 | filter_1
+    filter_0_or_1 = filter_0.OR(filter_1)
     assert_true(filter_0_or_1({'a': 0, 'b': 1, 'c': 2, 'd': 3}))
     assert_true(filter_0_or_1({'a': 0, 'b': 1, 'c': 2, 'd': None}))
     assert_true(filter_0_or_1({'a': None, 'b': 1, 'c': 2, 'd': 3}))
     assert_false(filter_0_or_1({'a': None, 'b': 1, 'c': 2, 'd': None}))
 
-    filter_0_xor_1 = filter_0 ^ filter_1
+    filter_0_xor_1 = filter_0.XOR(filter_1)
     assert_false(filter_0_xor_1({'a': 0, 'b': 1, 'c': 2, 'd': 3}))
     assert_true(filter_0_xor_1({'a': 0, 'b': 1, 'c': 2, 'd': None}))
     assert_true(filter_0_xor_1({'a': None, 'b': 1, 'c': 2, 'd': 3}))
     assert_false(filter_0_xor_1({'a': None, 'b': 1, 'c': 2, 'd': None}))
 
-    not_filter_0 = ~ filter_0
+    not_filter_0 = filter_0.NOT()
     assert_true(not_filter_0({}))
     assert_false(not_filter_0({'a': 0, 'b': 1}))
+
+    filter_2 = nv.ResultFilter({'a': nv.NotNull()}).AND(lambda d: len(d) < 2)
+    assert_true(filter_2({'a': 'a'}))
+    assert_false(filter_2({'a': ''}))
+    assert_false(filter_2({'a': 'a', 'b': 0}))
 
 
 # @with_setup(tst.setup_tmpdata, tst.teardown_tmpdata)
@@ -325,6 +354,14 @@ def test_json_add_im_files_paths():
         loaded = nv._json_add_im_files_paths(im_file_name)
         assert_equal(loaded['relative_path'], 'collection_1/image_1.nii.gz')
         assert_true(loaded.get('neurosynth_words_relative_path') is None)
+
+
+def test_split_terms():
+    terms, server_terms = nv._split_terms(
+        {'DOI': nv.NotNull(), 'name': 'my_name', 'unknown_term': 'something'},
+        nv._COL_FILTERS_AVAILABLE_ON_SERVER)
+    assert_equal(terms, {'DOI': nv.NotNull(), 'unknown_term': 'something'})
+    assert_equal(server_terms, {'name': 'my_name'})
 
 
 def test_move_unknown_terms_to_local_filter():
