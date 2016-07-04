@@ -116,6 +116,10 @@ _COLLECTION_BASIC_FIELDS_SQL = _translate_types_to_sql(
 
 _ALL_IMAGE_FIELDS = copy(_IMAGE_BASIC_FIELDS)
 
+_ALL_IMAGE_FIELDS['comment'] = str
+_ALL_IMAGE_FIELDS['is_bad'] = bool
+_ALL_IMAGE_FIELDS['clean_img_relative_path'] = str
+_ALL_IMAGE_FIELDS['clean_img_absolute_path'] = str
 _ALL_IMAGE_FIELDS['Action Observation'] = str
 _ALL_IMAGE_FIELDS['Acupuncture'] = str
 _ALL_IMAGE_FIELDS['Age'] = str
@@ -315,6 +319,14 @@ _ALL_COLLECTION_FIELDS['used_temporal_derivatives'] = bool
 
 _ALL_COLLECTION_FIELDS_SQL = _translate_types_to_sql(_ALL_COLLECTION_FIELDS)
 
+_KNOWN_BAD_COLLECTION_IDS = {16}
+_KNOWN_BAD_IMAGE_IDS = {
+    96, 97, 98,                    # The following maps are not brain maps
+    338, 339,                      # And the following are crap
+    335,                           # 335 is a duplicate of 336
+    3360, 3362, 3364,              # These are mean images, and not Z maps
+    1202, 1163, 1931, 1101, 1099}  # Ugly / obviously not Z maps
+
 
 class MaxImagesReached(StopIteration):
     """Exception class to signify enough images have been fetched."""
@@ -343,7 +355,7 @@ def prepare_logging(level=logging.DEBUG):
     logger.setLevel(logging.DEBUG)
     console_logger = logging.StreamHandler()
     console_logger.setLevel(level)
-    formatter = logging.Formatter('%(asctime)s:%(levelname)s: %(message)s')
+    formatter = logging.Formatter('%(levelname)s: %(message)s')
     console_logger.setFormatter(formatter)
     logger.addHandler(console_logger)
     return logger
@@ -958,10 +970,17 @@ def set_neurovault_directory(new_neurovault_dir=None):
     return neurovault_directory(new_neurovault_dir)
 
 
-def neurovault_metadata_db_path(**kwargs):
+def neurovault_metadata_db_path():
     """Get location of sqlite file holding Neurovault metadata."""
-    return os.path.join(neurovault_directory(**kwargs),
-                        '.neurovault_metadata.db')
+    db_path = os.path.join(
+        neurovault_directory(), '.neurovault_metadata.db')
+    if not os.path.isfile(db_path):
+        try:
+            with open(db_path, 'wb'):
+                pass
+        except PermissionError:
+            _logger.warning('Could not create database: no write access')
+    return db_path
 
 
 def _get_temp_dir(suggested_dir=None):
@@ -1022,8 +1041,8 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     vocabulary : list of str
         A list of all the words encountered in the word files.
 
-    frequencies : scipy.sparse.csr.csr_matrix
-        An (n images, vocabulary size) matrix. Each row corresponds to
+    frequencies : numpy.ndarray
+        An (n images, vocabulary size) array. Each row corresponds to
         an image, and each column corresponds to a word. The words are
         in the same order as in returned vaule `vocabulary`, so that
         `frequencies[i, j]` corresponds to the weight of
@@ -1046,8 +1065,8 @@ def neurosynth_words_vectorized(word_files, **kwargs):
                 'could not load words from file {}'.format(file_name))
             words.append({})
     vectorizer = DictVectorizer(**kwargs)
-    frequencies = vectorizer.fit_transform(words)
-    vocabulary = vectorizer.feature_names_
+    frequencies = vectorizer.fit_transform(words).toarray()
+    vocabulary = np.asarray(vectorizer.feature_names_)
     return frequencies, vocabulary
 
 
@@ -1080,12 +1099,13 @@ class BaseDownloadManager(object):
         value means download as many as you can.
 
     """
-    def __init__(self, neurovault_data_dir=None, max_images=100):
-        self.nv_data_dir_ = neurovault_directory(neurovault_data_dir)
+    def __init__(self, neurovault_data_dir, max_images=100):
+        self.nv_data_dir_ = neurovault_data_dir
         if max_images is not None and max_images < 0:
             max_images = None
         self.max_images_ = max_images
         self.already_downloaded_ = 0
+        self.write_ok_ = os.access(self.nv_data_dir_, os.W_OK)
 
     def collection(self, collection_info):
         """Receive metadata for a collection and take necessary actions.
@@ -1147,10 +1167,6 @@ class BaseDownloadManager(object):
 
     def __exit__(self, *args):
         self.finish()
-
-    def write_ok(self):
-        """Check if we have the authorization to modify the data dir."""
-        return os.access(self.nv_data_dir_, os.W_OK)
 
 
 def _write_metadata(metadata, file_name):
@@ -1422,6 +1438,8 @@ class DownloadManager(BaseDownloadManager):
         disk, fetch them and add their location to image metadata.
 
         """
+        if not self.write_ok_:
+            return image_info
         image_info = self._add_words(image_info)
         metadata_file_path = os.path.join(
             os.path.dirname(image_info['absolute_path']),
@@ -1509,6 +1527,8 @@ class SQLiteDownloadManager(DownloadManager):
         self.col_fields_ = _filter_field_names(collection_fields,
                                                _ALL_COLLECTION_FIELDS_SQL)
         self._update_sql_statements()
+        self.write_db_ok_ = self.write_ok_ and os.access(
+            neurovault_metadata_db_path(), os.W_OK)
 
     def _update_sql_statements(self):
         """Prepare SQL statements used to store metadata."""
@@ -1612,10 +1632,14 @@ class SQLiteDownloadManager(DownloadManager):
         disk, fetch them and add their location to image metadata.
 
         """
+        if not self.write_db_ok_:
+            return image_info
         super(SQLiteDownloadManager, self).update_image(image_info)
         return self._add_to_images(image_info)
 
     def update_collection(self, collection_info):
+        if not self.write_db_ok_:
+            return collection_info
         """Update database content for a collection."""
         super(SQLiteDownloadManager, self).update_collection(collection_info)
         return self._add_to_collections(collection_info)
@@ -1843,7 +1867,8 @@ def _scroll_server_data(collection_query_terms={},
 
     """
     if download_manager is None:
-        download_manager = BaseDownloadManager(max_images=max_images)
+        download_manager = BaseDownloadManager(
+            neurovault_data_dir=neurovault_directory(), max_images=max_images)
 
     collections = _scroll_server_results(
         _NEUROVAULT_COLLECTIONS_URL, query_terms=collection_query_terms,
@@ -2164,12 +2189,15 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
 
 def basic_collection_terms():
     """Return a term filter that excludes empty collections."""
-    return {'number_of_images': NotNull()}
+    return {'number_of_images': NotNull(),
+            'id': NotIn(_KNOWN_BAD_COLLECTION_IDS)}
 
 
 def basic_image_terms():
-    """Return a filter that selects valid, thresholded images in mni space"""
-    return {'not_mni': False, 'is_valid': True, 'is_thresholded': False}
+    """Filter that selects unthresholded F, T and Z maps in mni space"""
+    return {'not_mni': False, 'is_valid': True, 'is_thresholded': False,
+            'map_type': IsIn({'F map', 'T map', 'Z map'}),
+            'id': NotIn(_KNOWN_BAD_IMAGE_IDS)}
 
 
 def _move_col_id(im_terms, col_terms):
@@ -2195,7 +2223,7 @@ def _move_col_id(im_terms, col_terms):
 
 
 # TODO: finish docstring
-def fetch_neurovault(max_images=None,
+def fetch_neurovault(max_images=100,
                      collection_terms=basic_collection_terms(),
                      collection_filter=_empty_filter,
                      image_terms=basic_image_terms(),
@@ -2366,7 +2394,7 @@ def fetch_neurovault(max_images=None,
     return result
 
 
-def refresh_db(*args, **kwargs):
+def refresh_db(**kwargs):
     """Update local database with metadata cached in json files.
 
     This is mostly called automatically so that the database is always
@@ -2377,8 +2405,11 @@ def refresh_db(*args, **kwargs):
     SQLiteDownloadManager
 
     """
+    if not os.access(neurovault_metadata_db_path(), os.W_OK):
+        return
     _logger.debug('refreshing local database')
-    download_manager = SQLiteDownloadManager(*args, **kwargs)
+    download_manager = SQLiteDownloadManager(
+        neurovault_data_dir=neurovault_directory(), **kwargs)
     fetch_neurovault(image_terms={}, collection_terms={},
                      download_manager=download_manager,
                      mode='offline', fetch_neurosynth_words=True)
