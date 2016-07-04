@@ -979,7 +979,7 @@ def neurovault_metadata_db_path():
         try:
             with open(db_path, 'wb'):
                 pass
-        except OSError as error:
+        except EnvironmentError as error:
             if errno.errorcode[error.errno] not in ['EPERM', 'EACCESS']:
                 raise
             _logger.warning('Could not create database: no write access')
