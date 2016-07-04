@@ -320,7 +320,7 @@ _ALL_COLLECTION_FIELDS['used_temporal_derivatives'] = bool
 
 _ALL_COLLECTION_FIELDS_SQL = _translate_types_to_sql(_ALL_COLLECTION_FIELDS)
 
-_KNOWN_BAD_COLLECTION_IDS = {16}
+_KNOWN_BAD_COLLECTION_IDS = {16, 835}  # The files don't seem to exist
 _KNOWN_BAD_IMAGE_IDS = {
     96, 97, 98,                    # The following maps are not brain maps
     338, 339,                      # And the following are crap
@@ -389,7 +389,7 @@ def _append_filters_to_query(query, filters):
     if not filters:
         return query
     new_query = urljoin(
-        query, urlencode(filters))
+        query, '?{}'.format(urlencode(filters)))
     return new_query
 
 
@@ -537,7 +537,8 @@ def _scroll_server_results(url, local_filter=_empty_filter,
     query = _append_filters_to_query(url, query_terms)
     if batch_size is None:
         batch_size = _DEFAULT_BATCH_SIZE
-    query = '{}?limit={}&offset={{}}'.format(query, batch_size)
+    query = '{}{}limit={}&offset={{}}'.format(
+        query, ('&' if '?' in query else '?'), batch_size)
     downloaded = 0
     n_available = None
     while(max_results is None or downloaded < max_results):
@@ -855,8 +856,7 @@ def _simple_download(url, target_file, temp_dir):
         if (isinstance(e, AttributeError) and
             e.args[0] == "can't set attribute"):
             raise URLError(
-                'HTTPError raised in nilearn.datasets._fetch_file; '
-                'then AttributeError when trying to set reason attribute.')
+                'HTTPError raised in nilearn.datasets._fetch_file')
         raise
     shutil.move(downloaded, target_file)
     _logger.debug(
@@ -1057,6 +1057,7 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     sklearn.feature_extraction.DictVectorizer
 
     """
+    _logger.info('computing word features')
     words = []
     for file_name in word_files:
         try:
@@ -1070,6 +1071,8 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     vectorizer = DictVectorizer(**kwargs)
     frequencies = vectorizer.fit_transform(words).toarray()
     vocabulary = np.asarray(vectorizer.feature_names_)
+    _logger.info('computing word features done; vocabulary size: {}'.format(
+        vocabulary.size))
     return frequencies, vocabulary
 
 
@@ -1717,8 +1720,8 @@ class SQLiteDownloadManager(DownloadManager):
 
 
 def _scroll_collection(collection, image_terms, image_filter, batch_size,
-                       download_manager,
-                       previous_consecutive_fails, max_consecutive_fails):
+                       download_manager, previous_consecutive_fails,
+                       max_consecutive_fails, max_fails_in_collection):
     """Iterate over the content of a collection on Neurovault server.
 
     Parameters
@@ -1769,6 +1772,7 @@ def _scroll_collection(collection, image_terms, image_filter, batch_size,
     """
     n_im_in_collection = 0
     consecutive_fails = previous_consecutive_fails
+    fails_in_collection = 0
     query = urljoin(_NEUROVAULT_COLLECTIONS_URL,
                     '{}/images/'.format(collection['id']))
     images = _scroll_server_results(
@@ -1781,12 +1785,14 @@ def _scroll_collection(collection, image_terms, image_filter, batch_size,
         try:
             image = download_manager.image(image)
             consecutive_fails = 0
+            fails_in_collection = 0
             yield image, consecutive_fails
             n_im_in_collection += 1
         except MaxImagesReached:
             raise
         except Exception:
             consecutive_fails += 1
+            fails_in_collection += 1
             _logger.exception(
                 '_scroll_collection: bad image: {}'.format(image))
         if consecutive_fails == max_consecutive_fails:
@@ -1795,6 +1801,11 @@ def _scroll_collection(collection, image_terms, image_filter, batch_size,
                     consecutive_fails))
             raise RuntimeError(
                 '{} consecutive bad images'.format(consecutive_fails))
+        if fails_in_collection == max_fails_in_collection:
+            _logger.error(
+                'too many bad images in collection {}:  {} bad images'.format(
+                    collection['id'], fails_in_collection))
+            return
 
     _logger.info(
         'on neurovault.org: '
@@ -1808,7 +1819,8 @@ def _scroll_server_data(collection_query_terms={},
                         collection_local_filter=_empty_filter,
                         image_query_terms={}, image_local_filter=_empty_filter,
                         download_manager=None, max_images=None,
-                        metadata_batch_size=None, max_consecutive_fails=5):
+                        metadata_batch_size=None, max_consecutive_fails=10,
+                        max_fails_in_collection=5):
     """Iterate over neurovault.org results for a query.
 
     Parameters
@@ -1892,8 +1904,8 @@ def _scroll_server_data(collection_query_terms={},
                 raise
             collection_content = _scroll_collection(
                 collection, image_query_terms, image_local_filter,
-                metadata_batch_size, download_manager,
-                consecutive_fails, max_consecutive_fails)
+                metadata_batch_size, download_manager, consecutive_fails,
+                max_consecutive_fails, max_fails_in_collection)
             while True:
                 try:
                     image, consecutive_fails = next(collection_content)
@@ -2364,7 +2376,7 @@ def fetch_neurovault(max_images=100,
 
     neurovault_data_dir = neurovault_directory(neurovault_data_dir)
     if mode != 'offline' and not os.access(neurovault_data_dir, os.W_OK):
-        warnings.warn("You don't have write access to neurovault dir: {};"
+        warnings.warn("You don't have write access to neurovault dir: {}; "
                       "fetch_neurovault is working offline.".format(
                           neurovault_data_dir))
         mode = 'offline'
