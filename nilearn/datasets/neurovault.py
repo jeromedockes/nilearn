@@ -11,6 +11,7 @@ from pprint import pprint
 import sqlite3
 from collections import OrderedDict
 import atexit
+import errno
 
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -978,7 +979,9 @@ def neurovault_metadata_db_path():
         try:
             with open(db_path, 'wb'):
                 pass
-        except PermissionError:
+        except OSError as error:
+            if errno.errorcode[error.errno] not in ['EPERM', 'EACCESS']:
+                raise
             _logger.warning('Could not create database: no write access')
     return db_path
 
