@@ -9,7 +9,7 @@ from glob import glob
 from tempfile import mkdtemp
 from pprint import pprint
 import sqlite3
-from collections import OrderedDict
+from collections import OrderedDict, Sequence
 import atexit
 import errno
 
@@ -25,9 +25,6 @@ urljoin, urlencode = _urllib.parse.urljoin, _urllib.parse.urlencode
 URLError = _urllib.error.URLError
 Request, build_opener = _urllib.request.Request, _urllib.request.build_opener
 
-
-# TODO: make docstrings conform to numpy and scikit-learn recommandations
-# TODO: tests!!
 
 _NEUROVAULT_BASE_URL = 'http://neurovault.org/api/'
 _NEUROVAULT_COLLECTIONS_URL = urljoin(_NEUROVAULT_BASE_URL, 'collections/')
@@ -111,6 +108,7 @@ _COLLECTION_BASIC_FIELDS['url'] = str
 _COLLECTION_BASIC_FIELDS['owner'] = int
 _COLLECTION_BASIC_FIELDS['owner_name'] = str
 _COLLECTION_BASIC_FIELDS['contributors'] = str
+_COLLECTION_BASIC_FIELDS['description'] = str
 
 _COLLECTION_BASIC_FIELDS_SQL = _translate_types_to_sql(
     _COLLECTION_BASIC_FIELDS)
@@ -235,7 +233,6 @@ _ALL_COLLECTION_FIELDS['authors'] = str
 _ALL_COLLECTION_FIELDS['autocorrelation_model'] = str
 _ALL_COLLECTION_FIELDS['b0_unwarping_software'] = str
 _ALL_COLLECTION_FIELDS['coordinate_space'] = str
-_ALL_COLLECTION_FIELDS['description'] = str
 _ALL_COLLECTION_FIELDS['doi_add_date'] = str
 _ALL_COLLECTION_FIELDS['echo_time'] = float
 _ALL_COLLECTION_FIELDS['field_of_view'] = float
@@ -1814,7 +1811,6 @@ def _scroll_collection(collection, image_terms, image_filter, batch_size,
             ('s' if n_im_in_collection > 1 else ''), collection['id']))
 
 
-# TODO: finish docstring.
 def _scroll_server_data(collection_query_terms={},
                         collection_local_filter=_empty_filter,
                         image_query_terms={}, image_local_filter=_empty_filter,
@@ -1954,7 +1950,6 @@ def _json_add_im_files_paths(file_name, force=True):
     return loaded
 
 
-# TODO: finish docstring
 def _scroll_local_data(neurovault_dir,
                        collection_filter=_empty_filter,
                        image_filter=_empty_filter,
@@ -2043,7 +2038,6 @@ def _prepare_local_scroller(neurovault_dir, collection_terms,
     return local_data
 
 
-# TODO: finish docstring
 def _prepare_remote_scroller(collection_terms, collection_filter,
                              image_terms, image_filter,
                              collection_ids, image_ids,
@@ -2090,7 +2084,6 @@ class _EmptyContext(object):
         pass
 
 
-# TODO: finish docstring
 def _join_local_and_remote(neurovault_dir, mode='download_new',
                            collection_terms={},
                            collection_filter=_empty_filter,
@@ -2237,7 +2230,6 @@ def _move_col_id(im_terms, col_terms):
     return im_terms, col_terms
 
 
-# TODO: finish docstring
 def fetch_neurovault(max_images=100,
                      collection_terms=basic_collection_terms(),
                      collection_filter=_empty_filter,
@@ -2246,7 +2238,7 @@ def fetch_neurovault(max_images=100,
                      mode='download_new',
                      neurovault_data_dir=None,
                      fetch_neurosynth_words=False,
-                     download_manager=None, **kwargs):
+                     download_manager=None, vectorize_words=True, **kwargs):
     """Download data from neurovault.org and neurosynth.org.
 
     Parameters
@@ -2401,7 +2393,7 @@ def fetch_neurovault(max_images=100,
     result = Bunch(images=images,
                    images_meta=images_meta,
                    collections_meta=collections_meta)
-    if fetch_neurosynth_words:
+    if fetch_neurosynth_words and vectorize_words:
         (result['word_frequencies'],
          result['vocabulary']) = neurosynth_words_vectorized(
              [meta.get('neurosynth_words_absolute_path') for
@@ -2427,7 +2419,8 @@ def refresh_db(**kwargs):
         neurovault_data_dir=neurovault_directory(), **kwargs)
     fetch_neurovault(image_terms={}, collection_terms={},
                      download_manager=download_manager,
-                     mode='offline', fetch_neurosynth_words=True)
+                     mode='offline', fetch_neurosynth_words=True,
+                     vectorize_words=False)
 
 
 def _update_metadata_info(collected_info, new_instance):
@@ -2630,6 +2623,12 @@ def _table_exists(cursor, table_name):
     return bool(cursor.fetchall())
 
 
+def _get_len(text):
+    if isinstance(text, Sequence):
+        return len(text)
+    return 0
+
+
 def local_database_connection():
     """Get access to the local sqlite database holding Neurovault metadata.
 
@@ -2646,6 +2645,7 @@ def local_database_connection():
     db_path = neurovault_metadata_db_path()
     local_database_connection.connection_ = sqlite3.connect(db_path)
     local_database_connection.connection_.row_factory = sqlite3.Row
+    local_database_connection.connection_.create_function("LEN", 1, _get_len)
     return local_database_connection.connection_
 
 
@@ -2743,7 +2743,8 @@ def column_names(cursor, table_name):
     return next(zip(*columns))
 
 
-def read_sql_query(query, bindings=(), as_columns=True, curs=None):
+def read_sql_query(query, bindings=(), as_columns=True, curs=None,
+                   vectorize_words=True):
     """Get response from local Neurovault database for an SQL query.
 
     Parameters
@@ -2801,9 +2802,19 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None):
     cols = zip(*resp)
     cols = map(np.asarray, cols)
     response = OrderedDict(zip(col_names, cols))
-    if 'neurosynth_words_absolute_path' in query:
-        frequencies, vocabulary = neurosynth_words_vectorized(
-            response['neurosynth_words_absolute_path'])
-        response['word_frequencies'] = frequencies
-        response['vocabulary'] = vocabulary
+    if not vectorize_words:
+        return response
+    alias_pattern = re.compile(
+        r'\bneurosynth_words_absolute_path\b(?:\s+as\s+(\b\w+\b))?',
+        flags=re.IGNORECASE)
+    match = re.search(alias_pattern, query)
+    if match is None:
+        return response
+    alias = match.group(1)
+    if alias is None:
+        alias = 'neurosynth_words_absolute_path'
+    frequencies, vocabulary = neurosynth_words_vectorized(
+        response[alias])
+    response['word_frequencies'] = frequencies
+    response['vocabulary'] = vocabulary
     return response
