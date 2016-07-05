@@ -1635,16 +1635,16 @@ class SQLiteDownloadManager(DownloadManager):
         disk, fetch them and add their location to image metadata.
 
         """
+        super(SQLiteDownloadManager, self).update_image(image_info)
         if not self.write_db_ok_:
             return image_info
-        super(SQLiteDownloadManager, self).update_image(image_info)
         return self._add_to_images(image_info)
 
     def update_collection(self, collection_info):
-        if not self.write_db_ok_:
-            return collection_info
         """Update database content for a collection."""
         super(SQLiteDownloadManager, self).update_collection(collection_info)
+        if not self.write_db_ok_:
+            return collection_info
         return self._add_to_collections(collection_info)
 
     def start(self):
@@ -2420,7 +2420,7 @@ def refresh_db(**kwargs):
     fetch_neurovault(image_terms={}, collection_terms={},
                      download_manager=download_manager,
                      mode='offline', fetch_neurosynth_words=True,
-                     vectorize_words=False)
+                     vectorize_words=False, max_images=None)
 
 
 def _update_metadata_info(collected_info, new_instance):
