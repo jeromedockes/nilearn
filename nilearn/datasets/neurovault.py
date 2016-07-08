@@ -1,3 +1,44 @@
+"""Download statistical maps available on Neurovault.
+
+Neurovault[1]_ is a public repository of unthresholded statistical
+maps, parcellations, and atlases of the human brain. You can read
+about it and browse the images it contains at www.neurovault.org.
+
+This module provides the function ``fetch_neurovault`` which can be
+used to download maps from neurovault, and also to access images saved
+on the local disk in later sessions.
+
+Additionally, it is possible to ask Neurosynth[2]_ to anotate the maps
+we have downloaded.  Neurosynth is a platform for large-scale,
+automated synthesis of fMRI data. It can be used to perform decoding,
+so ``fetch_neurovault`` offers the possibility to query Neurosynth and
+obtain a list of weighed terms for each downloaded image. You can find
+out more about Neurosynth at www.neurosynth.org.
+
+By default, the metadata for downloaded images is stored in an sqlite
+database, which is actually just a file on disk but can be queried
+like an SQL database using the standard library ``sqlite3`` module.
+This allows you to explore and use the data you have downloaded
+easily, using ``read_sql_query``, or directly using the connection
+returned by ``local_database_connection``. This is an alternative to
+``fetch_neurovault`` for accessing metadata for images which have been
+downloaded and saved on disk.
+
+References
+----------
+.. [1] Gorgolewski KJ, Varoquaux G, Rivera G, Schwartz Y, Ghosh SS,
+   Maumet C, Sochat VV, Nichols TE, Poldrack RA, Poline J-B, Yarkoni
+   T and Margulies DS (2015) NeuroVault.org: a web-based repository
+   for collecting and sharing unthresholded statistical maps of the
+   human brain. Front. Neuroinform. 9:8.  doi:
+   10.3389/fninf.2015.00008
+
+.. [2] Yarkoni, Tal, Russell A. Poldrack, Thomas E. Nichols, David
+   C. Van Essen, and Tor D. Wager. "Large-scale automated synthesis
+   of human functional neuroimaging data." Nature methods 8, no. 8
+   (2011): 665-670.
+
+"""
 import os
 import logging
 import warnings
@@ -911,7 +952,7 @@ def neurovault_directory(suggested_dir=None):
     """Return path to neurovault directory on filesystem.
 
     A connection to a local database in this directory is open and its
-    contents are updated.
+    contents are updated if necessary.
 
     See Also
     --------
@@ -933,7 +974,8 @@ def neurovault_directory(suggested_dir=None):
     neurovault_directory.directory_path_ = _checked_get_dataset_dir(
         dataset_name, root_data_dir)
     assert(neurovault_directory.directory_path_ is not None)
-    refresh_db()
+    if _absolute_paths_incorrect():
+        refresh_db()
     return neurovault_directory.directory_path_
 
 
@@ -942,7 +984,8 @@ def set_neurovault_directory(new_neurovault_dir=None):
 
     If the preferred directory is changed, if a connection to a local
     database was open, it is closed; a connection is open to a
-    database in the new directory and its contents are updated.
+    database in the new directory and its contents are updated if
+    necessary.
 
     Parameters
     ----------
@@ -1691,7 +1734,7 @@ class SQLiteDownloadManager(DownloadManager):
                         col_name, table))
                 col_str = _get_columns_string([col_name], ref_names)
                 self.cursor_.execute(
-                    'ALTER TABLE {} ADD {}'.format(table, col_str))
+                    "ALTER TABLE {} ADD {}".format(table, col_str))
             col_names_to_add = set(existing_col_names).difference(col_names)
             if col_names_to_add:
                 _logger.info(
@@ -2239,7 +2282,7 @@ def fetch_neurovault(max_images=100,
                      neurovault_data_dir=None,
                      fetch_neurosynth_words=False,
                      download_manager=None, vectorize_words=True, **kwargs):
-    """Download data from neurovault.org and neurosynth.org.
+    """Download data from neurovault.org[1]_ and neurosynth.org[2]_.
 
     Parameters
     ----------
@@ -2355,12 +2398,18 @@ def fetch_neurovault(max_images=100,
 
     References
     ----------
-    [1] Gorgolewski KJ, Varoquaux G, Rivera G, Schwartz Y, Ghosh SS,
-        Maumet C, Sochat VV, Nichols TE, Poldrack RA, Poline J-B,
-        Yarkoni T and Margulies DS (2015) NeuroVault.org: a web-based
-        repository for collecting and sharing unthresholded
-        statistical maps of the human brain. Front. Neuroinform. 9:8.
-        doi: 10.3389/fninf.2015.00008
+
+    .. [1] Gorgolewski KJ, Varoquaux G, Rivera G, Schwartz Y, Ghosh SS,
+       Maumet C, Sochat VV, Nichols TE, Poldrack RA, Poline J-B,
+       Yarkoni T and Margulies DS (2015) NeuroVault.org: a web-based
+       repository for collecting and sharing unthresholded
+       statistical maps of the human brain. Front. Neuroinform. 9:8.
+       doi: 10.3389/fninf.2015.00008
+
+    .. [2] Yarkoni, Tal, Russell A. Poldrack, Thomas E. Nichols, David
+       C. Van Essen, and Tor D. Wager. "Large-scale automated synthesis
+       of human functional neuroimaging data." Nature methods 8, no. 8
+       (2011): 665-670.
 
     """
     image_terms = dict(image_terms, **kwargs)
@@ -2401,11 +2450,38 @@ def fetch_neurovault(max_images=100,
     return result
 
 
+def _absolute_paths_incorrect():
+    """Check if any of the absolute paths in local db are broken."""
+    try:
+        cursor = local_database_cursor()
+        cursor.execute(
+            """SELECT absolute_path FROM collections WHERE
+            NOT ISDIR(absolute_path) OR absolute_path NOT LIKE ? LIMIT 1""",
+            (os.path.join(neurovault_directory(), '%'), ))
+        bad_paths = cursor.fetchall()
+        if bad_paths:
+            return True
+        cursor.execute(
+            """SELECT absolute_path FROM images WHERE
+            NOT ISFILE(absolute_path) OR absolute_path NOT LIKE ? LIMIT 1""",
+            (os.path.join(neurovault_directory(), 'collection_%'), ))
+        bad_paths = cursor.fetchall()
+        if bad_paths:
+            return True
+    except Exception as e:
+        return True
+
+    return False
+
+
 def refresh_db(**kwargs):
     """Update local database with metadata cached in json files.
 
     This is mostly called automatically so that the database is always
     up-to-date, but it can be used by a user to add columns to tables.
+
+    Keyword arguments are passed to the SQLiteDownloadManager
+    constructor.
 
     See Also
     --------
@@ -2421,6 +2497,33 @@ def refresh_db(**kwargs):
                      download_manager=download_manager,
                      mode='offline', fetch_neurosynth_words=True,
                      vectorize_words=False, max_images=None)
+    connection = local_database_cursor()
+    connection.execute(
+        """DELETE FROM collections WHERE
+        NOT ISDIR(absolute_path) OR absolute_path NOT LIKE ?""",
+        (os.path.join(neurovault_directory(), '%'), ))
+    connection.execute(
+        """DELETE FROM images WHERE
+        NOT ISFILE(absolute_path) OR absolute_path NOT LIKE ?""",
+        (os.path.join(neurovault_directory(), 'collection_%'), ))
+
+
+def recompute_db(**kwargs):
+    """Drop tables images and collections from database and recompute.
+
+    Keyword arguments are passed to the SQLiteDownloadManager
+    constructor used to compute the new database.
+
+    """
+    try:
+        read_sql_query("DROP TABLE images")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        read_sql_query("DROP TABLE collections")
+    except sqlite3.OperationalError:
+        pass
+    refresh_db()
 
 
 def _update_metadata_info(collected_info, new_instance):
@@ -2637,7 +2740,7 @@ def local_database_connection():
     use ``pandas``, as they can very easily load Neurovault metadata
     into a ``pandas.DataFrame`` object:
 
-    df = pd.read_sql_query('SELECT * FROM images', local_database_connection())
+    df = pd.read_sql_query("SELECT * FROM images", local_database_connection())
 
     """
     if getattr(local_database_connection, 'connection_', None) is not None:
@@ -2646,10 +2749,15 @@ def local_database_connection():
     local_database_connection.connection_ = sqlite3.connect(db_path)
     local_database_connection.connection_.row_factory = sqlite3.Row
     local_database_connection.connection_.create_function("LEN", 1, _get_len)
+    local_database_connection.connection_.create_function(
+        "ISFILE", 1, os.path.isfile)
+    local_database_connection.connection_.create_function(
+        "ISDIR", 1, os.path.isdir)
     return local_database_connection.connection_
 
 
 def local_database_cursor():
+    """Get a cursor for the local sqlite database connection."""
     return local_database_connection().cursor()
 
 
@@ -2721,10 +2829,11 @@ def table_info(cursor, table_name):
     Also returns (part of) the statement used to create the table.
 
     """
-    cursor.execute("SELECT sql FROM sqlite_master "
-                   "WHERE tbl_name=? AND type='table'", (table_name,))
+    cursor.execute(
+        """SELECT sql FROM sqlite_master WHERE
+        tbl_name=? AND type='table'""", (table_name,))
     table_statement = cursor.fetchone()[0]
-    m = re.match(r'CREATE TABLE {} ?\((.*)\)'.format(table_name),
+    m = re.match(r"CREATE TABLE {} ?\((.*)\)".format(table_name),
                  table_statement, re.IGNORECASE)
     if not m:
         _logger.error('table_info: could not find column names '
@@ -2779,12 +2888,12 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
 
     Examples
     --------
-    >>> data = read_sql_query('SELECT images.id AS image_id, '
-                              'images.absolute_path AS image_path, '
-                              'collections.id AS collection_id, '
-                              'collections.DOI FROM images '
-                              'INNER JOIN collections ON '
-                              'images.collection_id=collections.id')
+    >>> data = read_sql_query("SELECT images.id AS image_id, "
+                              "images.absolute_path AS image_path, "
+                              "collections.id AS collection_id, "
+                              "collections.DOI FROM images "
+                              "INNER JOIN collections ON "
+                              "images.collection_id=collections.id")
 
     >>> print(list(data.keys()))
 
@@ -2794,6 +2903,8 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
     curs.execute(query, bindings)
     resp = curs.fetchall()
     if not resp:
+        if curs.description is None:
+            return None
         col_names = list(zip(*curs.description))[0]
         return OrderedDict([(name, []) for name in col_names])
     if not as_columns:
