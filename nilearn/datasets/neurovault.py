@@ -50,7 +50,7 @@ from glob import glob
 from tempfile import mkdtemp
 from pprint import pprint
 import sqlite3
-from collections import OrderedDict, Sequence
+from collections import OrderedDict, Sequence, defaultdict
 import atexit
 import errno
 
@@ -77,7 +77,19 @@ _IM_FILTERS_AVAILABLE_ON_SERVER = set()
 
 _DEFAULT_BATCH_SIZE = 100
 
-_PY_TO_SQL_TYPE = {int: 'INTEGER', bool: 'INTEGER', float: 'REAL', str: 'TEXT'}
+_PY_TO_SQL_TYPE = defaultdict(
+    lambda: '',
+    {int: 'INTEGER', bool: 'INTEGER', float: 'REAL', str: 'TEXT'})
+
+
+def _to_supported_type(obj):
+    if obj is None:
+        return None
+    if (isinstance(obj, str) and re.match(r'(none|null)', obj, re.IGNORECASE)):
+        return None
+    if type(obj) in _PY_TO_SQL_TYPE:
+        return obj
+    return str(obj)
 
 _IMAGE_BASIC_FIELDS = OrderedDict()
 _IMAGE_BASIC_FIELDS['id'] = int
@@ -130,6 +142,7 @@ def _translate_types_to_sql(fields_dict):
     """
     sql_fields = OrderedDict()
     for k, v in fields_dict.items():
+        k = re.sub(r'\W', '_', k)
         sql_fields[k] = _PY_TO_SQL_TYPE.get(v, '')
     return sql_fields
 
@@ -502,6 +515,7 @@ def _get_batch(query, prefix_msg=''):
 
     """
     request = Request(query)
+    request.add_header('Connection', 'Keep-Alive')
     opener = build_opener()
     _logger.debug('{}getting new batch: {}'.format(
         prefix_msg, query))
@@ -1116,6 +1130,14 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     return frequencies, vocabulary
 
 
+def _remove_none_strings(metadata):
+    for key, value in metadata.items():
+        if (isinstance(value, str) and
+            re.match(r'(none|null)', value, re.IGNORECASE)):
+            metadata[key] = None
+    return metadata
+
+
 class BaseDownloadManager(object):
     """Base class for all Neurovault download managers.
 
@@ -1160,6 +1182,7 @@ class BaseDownloadManager(object):
         which subclasses should override.
 
         """
+        collection_info = _remove_none_strings(collection_info)
         return self._collection_hook(collection_info)
 
     def image(self, image_info):
@@ -1174,6 +1197,9 @@ class BaseDownloadManager(object):
         """
         if self.already_downloaded_ == self.max_images_:
             raise MaxImagesReached()
+        if image_info is None:
+            return None
+        image_info = _remove_none_strings(image_info)
         image_info = self._image_hook(image_info)
         if image_info is not None:
             self.already_downloaded_ += 1
@@ -1387,32 +1413,34 @@ class DownloadManager(BaseDownloadManager):
             fetched) added to it.
 
         """
-        if self.fetch_ns_:
-            collection_absolute_path = os.path.dirname(
-                image_info['absolute_path'])
-            collection_relative_path = os.path.basename(
-                collection_absolute_path)
-            ns_words_file_name = 'neurosynth_words_for_image_{}.json'.format(
-                image_info['id'])
-            ns_words_relative_path = os.path.join(collection_relative_path,
-                                                  ns_words_file_name)
-            ns_words_absolute_path = os.path.join(collection_absolute_path,
-                                                  ns_words_file_name)
-            if not os.path.isfile(ns_words_absolute_path):
-                try:
-                    _fetch_neurosynth_words(
-                        image_info['id'],
-                        ns_words_absolute_path, self.temp_dir_)
-                except(URLError, ValueError) as e:
-                    _logger.exception(
-                        'could not fetch words for image {}'.format(
-                            image_info['id']))
-                    self.neurosynth_error_handler_(e)
-                    return
-            image_info[
-                'neurosynth_words_relative_path'] = ns_words_relative_path
-            image_info[
-                'neurosynth_words_absolute_path'] = ns_words_absolute_path
+        if not self.fetch_ns_:
+            return image_info
+
+        collection_absolute_path = os.path.dirname(
+            image_info['absolute_path'])
+        collection_relative_path = os.path.basename(
+            collection_absolute_path)
+        ns_words_file_name = 'neurosynth_words_for_image_{}.json'.format(
+            image_info['id'])
+        ns_words_relative_path = os.path.join(collection_relative_path,
+                                              ns_words_file_name)
+        ns_words_absolute_path = os.path.join(collection_absolute_path,
+                                              ns_words_file_name)
+        if not os.path.isfile(ns_words_absolute_path):
+            try:
+                _fetch_neurosynth_words(
+                    image_info['id'],
+                    ns_words_absolute_path, self.temp_dir_)
+            except(URLError, ValueError) as e:
+                _logger.exception(
+                    'could not fetch words for image {}'.format(
+                        image_info['id']))
+                self.neurosynth_error_handler_(e)
+                return
+        image_info[
+            'neurosynth_words_relative_path'] = ns_words_relative_path
+        image_info[
+            'neurosynth_words_absolute_path'] = ns_words_absolute_path
         return image_info
 
     def _image_hook(self, image_info):
@@ -1597,6 +1625,8 @@ class SQLiteDownloadManager(DownloadManager):
             Identical to the argument `collection_info`.
 
         """
+        collection_info = {re.sub(r'\W', '_', k): _to_supported_type(v) for
+                           k, v in collection_info.items()}
         values = [collection_info.get(field) for field in self.col_fields_]
         try:
             self.cursor_.execute(self.col_insert_, values)
@@ -1638,6 +1668,8 @@ class SQLiteDownloadManager(DownloadManager):
             Identical to the argument `image_info`.
 
         """
+        image_info = {re.sub(r'\W', '_', k): _to_supported_type(v) for
+                      k, v in image_info.items()}
         values = [image_info.get(field) for field in self.im_fields_]
         try:
             self.cursor_.execute(self.im_insert_, values)
@@ -1757,6 +1789,7 @@ class SQLiteDownloadManager(DownloadManager):
             return
         close_database_connection(_logger.debug)
         self.connection_ = None
+        self.cursor_ = None
 
 
 def _scroll_collection(collection, image_terms, image_filter, batch_size,
@@ -2281,6 +2314,7 @@ def fetch_neurovault(max_images=100,
                      mode='download_new',
                      neurovault_data_dir=None,
                      fetch_neurosynth_words=False,
+                     fetch_reduced_rep=False,
                      download_manager=None, vectorize_words=True, **kwargs):
     """Download data from neurovault.org[1]_ and neurosynth.org[2]_.
 
@@ -2325,6 +2359,10 @@ def fetch_neurovault(max_images=100,
 
     fetch_neurosynth_words : bool, optional (default=False)
         Wether to collect words from Neurosynth.
+
+    fetch_reduced_rep : bool, optional (default=False)
+        Wether to collect subsampled representations of images
+        available on Neurovault.
 
     download_manager : BaseDownloadManager, optional (default=None)
         The download manager used to handle data from neurovault.org.
@@ -2426,7 +2464,8 @@ def fetch_neurovault(max_images=100,
         download_manager = SQLiteDownloadManager(
             max_images=max_images,
             neurovault_data_dir=neurovault_data_dir,
-            fetch_neurosynth_words=fetch_neurosynth_words)
+            fetch_neurosynth_words=fetch_neurosynth_words,
+            fetch_reduced_rep=fetch_reduced_rep)
 
     scroller = _join_local_and_remote(
         neurovault_dir=neurovault_data_dir, mode=mode,
@@ -2687,6 +2726,7 @@ def _filter_field_names(required_fields, ref_fields):
     """
     filtered = OrderedDict()
     for field_name in required_fields:
+        field_name = re.sub(r'\W', '_', field_name)
         if field_name in ref_fields:
             filtered[field_name] = ref_fields[field_name]
         else:
@@ -2841,7 +2881,11 @@ def table_info(cursor, table_name):
         return None
     info = m.group(1)
     columns = re.match(r'(.*?)(, FOREIGN.*)?$', info).group(1)
-    return info, [pair.split() for pair in columns.split(',')]
+    columns = [pair.split() for pair in columns.split(',')]
+    for c in columns:
+        if len(c) == 1:
+            c.append('')
+    return info, columns
 
 
 def column_names(cursor, table_name):

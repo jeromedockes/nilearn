@@ -23,7 +23,7 @@ from nilearn.datasets import neurovault as nv, load_mni152_brain_mask
 from nilearn.image import new_img_like
 from nilearn.input_data import NiftiMasker
 from nilearn._utils import check_niimg
-from nilearn.plotting import plot_stat_map
+from nilearn import plotting
 
 warnings.simplefilter('error', RuntimeWarning)  # Catch numeric issues in imgs
 warnings.simplefilter('ignore', DeprecationWarning)
@@ -113,8 +113,8 @@ for index, (ic_map, ic_terms) in enumerate(zip(
 
     ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
     ic_image = masker.inverse_transform(ic_map)
-    display = plot_stat_map(ic_image, threshold=ic_threshold, colorbar=False,
-                            bg_img=mask_img)
+    display = plotting.plot_stat_map(
+        ic_image, threshold=ic_threshold, colorbar=False, bg_img=mask_img)
 
     # Use the 4 terms weighted most as a title
     important_terms = vocabulary[np.argsort(ic_terms)[-4:]]
@@ -122,4 +122,4 @@ for index, (ic_map, ic_terms) in enumerate(zip(
     display.title(title, size=16)
 
 # Done.
-plt.show()
+plotting.show()
