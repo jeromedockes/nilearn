@@ -50,7 +50,7 @@ from glob import glob
 from tempfile import mkdtemp
 from pprint import pprint
 import sqlite3
-from collections import OrderedDict, Sequence, defaultdict
+from collections import OrderedDict, Sequence, defaultdict, Container
 import atexit
 import errno
 import traceback
@@ -723,6 +723,60 @@ class NotIn(_SpecialValue):
 
     def __eq__(self, other):
         return other not in self.rejected_
+
+
+class Contains(_SpecialValue):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with
+    `Contains(*must_be_contained)`. It will allways be equal to, and
+    only to, any value for which ``item in value`` is ``True`` for
+    every item in ``must_be_contained``.
+
+    Parameters
+    ----------
+    must_be_contained : container
+        A value will pass through the filter if it contains all the
+        items in must_be_contained.
+
+    """
+    def __init__(self, *args):
+        self.must_be_contained_ = args
+
+    def __eq__(self, other):
+        if not isinstance(other, Container):
+            return False
+        for item in self.must_be_contained_:
+            if item not in other:
+                return False
+        return True
+
+
+class NotContains(_SpecialValue):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with
+    `Contains(*must_not_be_contained)`. It will allways be equal to,
+    and only to, any value for which ``item in value`` is ``False``
+    for every item in ``must_be_contained``.
+
+    Parameters
+    ----------
+    must_be_contained : container
+        A value will pass through the filter if it does not contain
+        any of the items in must_be_contained.
+
+    """
+    def __init__(self, *args):
+        self.must_not_be_contained_ = args
+
+    def __eq__(self, other):
+        if not isinstance(other, Container):
+            return False
+        for item in self.must_not_be_contained_:
+            if item in other:
+                return False
+        return True
 
 
 class Pattern(_SpecialValue):

@@ -239,6 +239,30 @@ def test_NotIn():
     assert_true(2 == not_in)
 
 
+def test_Contains():
+    contains = nv.Contains('a', 0)
+    assert_true(contains == ['b', 1, 'a', 0])
+    assert_true(['b', 1, 'a', 0] == contains)
+    assert_true(contains != ['b', 1, 0])
+    assert_true(['b', 1, 'a'] != contains)
+    assert_false(contains != ['b', 1, 'a', 0])
+    assert_false(['b', 1, 'a', 0] != contains)
+    assert_false(contains == ['b', 1, 0])
+    assert_false(['b', 1, 'a'] == contains)
+
+
+def test_NotContains():
+    not_contains = nv.NotContains('ab')
+    assert_true(not_contains == 'a_b')
+    assert_true('bcd' == not_contains)
+    assert_true(not_contains != '_abcd')
+    assert_true('_abcd' != not_contains)
+    assert_false(not_contains != 'a_b')
+    assert_false('bcd' != not_contains)
+    assert_false(not_contains == '_abcd')
+    assert_false('_abcd' == not_contains)
+
+
 def test_Pattern():
     # Python std lib doc poker hand example
     pattern_0 = nv.Pattern(r'[0-9akqj]{5}$')
