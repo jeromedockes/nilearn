@@ -3,6 +3,7 @@ from collections import OrderedDict
 import tempfile
 import shutil
 import json
+import re
 
 import numpy as np
 from nose import SkipTest
@@ -236,6 +237,37 @@ def test_NotIn():
     assert_true(not_in == 2)
     assert_false(0 == not_in)
     assert_true(2 == not_in)
+
+
+def test_Pattern():
+    # Python std lib doc poker hand example
+    pattern_0 = nv.Pattern(r'[0-9akqj]{5}$')
+    pattern_1 = nv.Pattern(r'[0-9akqj]{5}$', re.I)
+    assert_true(pattern_0 == 'ak05q')
+    assert_false(pattern_0 == 'Ak05q')
+    assert_false(pattern_0 == 'ak05e')
+    assert_true(pattern_1 == 'ak05q')
+    assert_true(pattern_1 == 'Ak05q')
+    assert_false(pattern_1 == 'ak05e')
+    assert_false(pattern_0 != 'ak05q')
+    assert_true(pattern_0 != 'Ak05q')
+    assert_true(pattern_0 != 'ak05e')
+    assert_false(pattern_1 != 'ak05q')
+    assert_false(pattern_1 != 'Ak05q')
+    assert_true(pattern_1 != 'ak05e')
+
+    assert_true('ak05q' == pattern_0)
+    assert_false('Ak05q' == pattern_0)
+    assert_false('ak05e' == pattern_0)
+    assert_true('ak05q' == pattern_1)
+    assert_true('Ak05q' == pattern_1)
+    assert_false('ak05e' == pattern_1)
+    assert_false('ak05q' != pattern_0)
+    assert_true('Ak05q' != pattern_0)
+    assert_true('ak05e' != pattern_0)
+    assert_false('ak05q' != pattern_1)
+    assert_false('Ak05q' != pattern_1)
+    assert_true('ak05e' != pattern_1)
 
 
 def test_ResultFilter():

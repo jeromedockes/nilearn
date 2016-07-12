@@ -725,6 +725,35 @@ class NotIn(_SpecialValue):
         return other not in self.rejected_
 
 
+class Pattern(_SpecialValue):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with
+
+    `Pattern(pattern[, flags])`. It will allways be equal to, and only
+    to, any value for which ``re.match(pattern, value, flags)`` is
+    ``True``.
+
+    Parameters
+    ----------
+    pattern : str
+        The pattern to try to match to candidates.
+
+    flags : int, optional (default=0)
+        Value for ``re.match`` `flags` parameter,
+        e.g. ``re.IGNORECASE``. The default (0), is the default value
+        used by ``re.match``.
+
+    """
+    def __init__(self, pattern, flags=0):
+        self.pattern_ = re.compile(pattern, flags)
+
+    def __eq__(self, other):
+        if not isinstance(other, str) or not self.pattern_.match(other):
+            return False
+        return True
+
+
 class ResultFilter(object):
 
     """Easily create callable (local) filters for ``fetch_neurovault``.
