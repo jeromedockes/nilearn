@@ -297,7 +297,7 @@ def test_ResultFilter_combinations():
 # @with_setup(tst.setup_tmpdata, tst.teardown_tmpdata)
 # for some reason, when using this tst.tmpdir is None.
 # TODO: find out why and use tst.setup_tmpdata.
-# In the meanwhile, use TemporaryDirectory
+# In the meanwhile, use _TemporaryDirectory
 @ignore_connection_errors
 def test_simple_download():
     with _TemporaryDirectory() as temp_dir:
@@ -488,8 +488,17 @@ def test_move_unknown_terms_to_local_filter():
 
 
 class TestDownloadManager(nv.BaseDownloadManager):
+    def __init__(self, *args, **kwargs):
+        super(TestDownloadManager, self).__init__(*args, **kwargs)
+        self._n_times_called = 0
+
+    def _collection_hook(self, collection_info):
+        if self._n_times_called:
+            raise RuntimeError('some problem')
+        return collection_info
 
     def _image_hook(self, image_info):
+        self._n_times_called = 1
         super(TestDownloadManager, self)._image_hook(image_info)
         raise nv.URLError('bad download')
 
@@ -500,6 +509,12 @@ def test_fetch_neurovault():
                                    fetch_reduced_rep=True)
         if data is not None:
             assert_equal(len(data.images), 1)
+            nv.show_neurovault_image_keys(max_images=1)
+            nv.show_neurovault_collection_keys(max_images=1)
+            assert_false('id' in nv._which_keys_are_unused(max_images=1)[0])
+            assert_true(nv._nv_schema_exists(nv.local_database_cursor()))
+            assert_true('collection_id' in nv.column_names(
+                nv.local_database_cursor(), 'images'))
             meta = data.images_meta[0]
             assert_false(meta['not_mni'])
             db_data = nv.read_sql_query(
@@ -512,9 +527,9 @@ def test_fetch_neurovault():
             nv.refresh_db()
             assert_false(nv._absolute_paths_incorrect())
 
-        data = nv.fetch_neurovault(download_manager=TestDownloadManager(
-            max_images=2, neurovault_data_dir=nv.neurovault_directory()))
-        assert_equal(len(data['images']), 1)
+            data = nv.fetch_neurovault(download_manager=TestDownloadManager(
+                max_images=2, neurovault_data_dir=nv.neurovault_directory()))
+            assert_equal(len(data['images']), 1)
 
 
 def test_move_col_id():
