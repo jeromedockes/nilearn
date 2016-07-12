@@ -746,10 +746,14 @@ class Pattern(_SpecialValue):
 
     """
     def __init__(self, pattern, flags=0):
-        self.pattern_ = re.compile(pattern, flags)
+        # Don't use re.compile because compiled patterns
+        # can't be deepcopied.
+        self.pattern_ = pattern
+        self.flags_ = flags
 
     def __eq__(self, other):
-        if not isinstance(other, str) or not self.pattern_.match(other):
+        if not isinstance(other, str) or re.match(
+                self.pattern_, other, self.flags_) is None:
             return False
         return True
 
