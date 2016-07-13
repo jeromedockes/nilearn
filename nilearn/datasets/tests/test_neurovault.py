@@ -95,6 +95,9 @@ _EXAMPLE_COL_META = {
     "smoothing_fwhm": None}
 
 
+nv.set_logging_level(nv.logging.DEBUG)
+
+
 class _TemporaryDirectory(object):
     def __enter__(self):
         self.temp_dir_ = tempfile.mkdtemp()
@@ -482,10 +485,14 @@ def test_SQLiteDownloadManager():
             download_manager._add_to_images(_EXAMPLE_IM_META)
             download_manager._add_to_collections(_EXAMPLE_COL_META)
         assert_true(download_manager.connection_ is None)
+
         im_110_info = nv.read_sql_query(
-            """SELECT images.id AS image_id, collections.id AS collection_id,
-            collections.owner FROM images INNER JOIN collections ON
-            images.collection_id=collections.id""")
+            """SELECT valid_images.id AS image_id,
+            collections.id AS collection_id,
+            collections.owner AS owner FROM
+            valid_images INNER JOIN collections ON
+            valid_images.collection_id=collections.id""")
+
         assert_equal(im_110_info['image_id'][0], 110)
         assert_equal(im_110_info['collection_id'][0], 35)
         assert_equal(im_110_info['owner'][0], 52)

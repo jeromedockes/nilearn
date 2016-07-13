@@ -420,7 +420,11 @@ def prepare_logging(level=logging.DEBUG):
     return logger
 
 
-_logger = prepare_logging()
+_logger = prepare_logging(level=logging.INFO)
+
+
+def set_logging_level(level=logging.INFO):
+    _logger.handlers[0].setLevel(level)
 
 
 def _append_filters_to_query(query, filters):
@@ -643,6 +647,10 @@ class IsNull(_SpecialValue):
     any null value of any type (by null we mean for which bool
     returns False).
 
+    See Also
+    --------
+    NotNull
+
     """
     def __eq__(self, other):
         return not bool(other)
@@ -655,6 +663,10 @@ class NotNull(_SpecialValue):
     any non-zero value of any type (by non-zero we mean for which bool
     returns True).
 
+    See Also
+    --------
+    IsNull
+
     """
     def __eq__(self, other):
         return bool(other)
@@ -664,8 +676,8 @@ class NotEqual(_SpecialValue):
     """Special value used to filter terms.
 
     An instance of this class is constructed with `NotEqual(obj)`. It
-    will allways be equal to, and only to, any value for which ``obj
-    == value`` is ``False``.
+    will allways be equal to, and only to, any value for which
+    ``obj == value`` is ``False``.
 
     Parameters
     ----------
@@ -695,6 +707,10 @@ class IsIn(_SpecialValue):
         method. A value will pass through the filter if it is present
         in `accepted`.
 
+    See Also
+    --------
+    NotIn
+
     """
     def __init__(self, accepted):
         self.accepted_ = accepted
@@ -717,6 +733,10 @@ class NotIn(_SpecialValue):
         method. A value will pass through the filter if it is absent
         from `rejected`.
 
+    See Also
+    --------
+    IsIn
+
     """
     def __init__(self, rejected):
         self.rejected_ = rejected
@@ -738,6 +758,17 @@ class Contains(_SpecialValue):
     must_be_contained : container
         A value will pass through the filter if it contains all the
         items in must_be_contained.
+
+    See Also
+    --------
+    NotContains
+    Pattern
+
+    Examples
+    --------
+    >>> contains = Contains('house', 'face')
+    >>> 'face vs house' == contains
+    >>> 'smiling face vs frowning face' == contains
 
     """
     def __init__(self, *args):
@@ -765,6 +796,11 @@ class NotContains(_SpecialValue):
     must_be_contained : container
         A value will pass through the filter if it does not contain
         any of the items in must_be_contained.
+
+    See Also
+    --------
+    Contains
+    Pattern
 
     """
     def __init__(self, *args):
@@ -797,6 +833,18 @@ class Pattern(_SpecialValue):
         Value for ``re.match`` `flags` parameter,
         e.g. ``re.IGNORECASE``. The default (0), is the default value
         used by ``re.match``.
+
+    See Also
+    --------
+    Contains
+    NotContains
+    Documentation for standard library ``re`` module.
+
+    Examples
+    --------
+    >>> pattern = Pattern(r'[0-9akqj]{5}$')
+    >>> 'ak05q' == pattern
+    >>> 'ak05e' == pattern
 
     """
     def __init__(self, pattern, flags=0):
@@ -861,6 +909,10 @@ class ResultFilter(object):
     A dict of metadata will only pass through the filter if it
     satisfies all the `query_terms` AND all the elements of
     `callable_filters_`.
+
+    See Also
+    --------
+    IsNull, NotNull, NotEqual, IsIn, NotIn, Contains, NotContains, Pattern
 
     Examples
     --------
@@ -2144,8 +2196,8 @@ def _json_add_im_files_paths(file_name, force=True):
 
 
 def _scroll_local_data(neurovault_dir,
-                       collection_filter=_empty_filter,
-                       image_filter=_empty_filter,
+                       collection_terms={}, collection_filter=_empty_filter,
+                       image_terms={}, image_filter=_empty_filter,
                        max_images=None):
     """Iterate over local Neurovault data matching a query.
 
@@ -2154,12 +2206,23 @@ def _scroll_local_data(neurovault_dir,
     neurovault_dir : str
         Path to Neurovault data directory.
 
-    collection_filter : Callable
+    collection_terms : dict, optional (default={})
+        Key, value pairs used to filter collection
+        metadata. Collections for which
+        ``collection_metadata['key'] == value`` is not ``True``
+        for every key, value pair will be ignored.
+
+    collection_filter : Callable, optional (default=_empty_filter)
         Collections for which
         `collection_local_filter(collection_metadata)` is ``False``
         will be ignored.
 
-    image_filter : Callable
+    image_terms : dict, optional (default={})
+        Key, value pairs used to filter image metadata. Images for
+        which ``image_metadata['key'] == value`` is not ``True`` for
+        every key, value pair will be ignored.
+
+    image_filter : Callable, optional (default=_empty_filter)
         Images for which `image_local_filter(image_metadata)` is
         ``False`` will be ignored.
 
@@ -2175,6 +2238,10 @@ def _scroll_local_data(neurovault_dir,
         Metadata for the image's collection.
 
     """
+    collection_filter = ResultFilter(
+        **collection_terms).AND(collection_filter)
+    image_filter = ResultFilter(**image_terms).AND(image_filter)
+
     if max_images is not None and max_images < 0:
         max_images = None
     found_images = 0
@@ -2215,20 +2282,6 @@ def _move_unknown_terms_to_local_filter(terms, local_filter,
     local_terms, server_terms = _split_terms(terms, available_on_server)
     local_filter = ResultFilter(query_terms=local_terms).AND(local_filter)
     return server_terms, local_filter
-
-
-def _prepare_local_scroller(neurovault_dir, collection_terms,
-                            collection_filter, image_terms,
-                            image_filter, max_images):
-    """Construct filters for call to ``_scroll_local_data``."""
-    collection_local_filter = ResultFilter(
-        **collection_terms).AND(collection_filter)
-    image_local_filter = ResultFilter(**image_terms).AND(image_filter)
-    local_data = _scroll_local_data(
-        neurovault_dir, collection_filter=collection_local_filter,
-        image_filter=image_local_filter, max_images=max_images)
-
-    return local_data
 
 
 def _return_same(*args):
@@ -2318,7 +2371,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
         local_data = tuple()
     else:
         _logger.debug('reading local neurovault data')
-        local_data = _prepare_local_scroller(
+        local_data = _scroll_local_data(
             neurovault_dir, collection_terms, collection_filter,
             image_terms, image_filter, max_images)
         context = (download_manager if download_manager is not None
@@ -2962,14 +3015,22 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
     col_columns = _get_columns_string(col_fields, _ALL_COLLECTION_FIELDS_SQL)
     if(col_columns):
         col_columns = ', ' + col_columns
-    im_command = ('CREATE TABLE images '
-                  '(id INTEGER PRIMARY KEY, collection_id INTEGER'
-                  '{}, FOREIGN KEY(collection_id) '
-                  'REFERENCES collections(id))'.format(im_columns))
-    col_command = ('CREATE TABLE collections '
-                   '(id INTEGER PRIMARY KEY{})'.format(col_columns))
+    im_command = ("""CREATE TABLE images
+    (id INTEGER PRIMARY KEY, collection_id INTEGER {},
+    FOREIGN KEY(collection_id) REFERENCES collections(id))""".format(
+        im_columns))
+    col_command = ("""CREATE TABLE collections
+    (id INTEGER PRIMARY KEY{})""".format(col_columns))
     cursor = cursor.execute(col_command)
     cursor = cursor.execute(im_command)
+    try:
+        cursor = cursor.execute(
+            """CREATE VIEW valid_images AS SELECT * FROM images WHERE
+            not_mni=0 AND is_valid=1 AND is_thresholded=0 AND
+            (map_type='F map' OR map_type='T map' OR map_type='Z map')""")
+    except sqlite3.OperationalError:
+        _logger.debug("Failed to create 'valid_images' view: {}".format(
+            traceback.format_exc()))
     cursor.connection.commit()
     return cursor
 
@@ -2989,14 +3050,15 @@ def table_info(cursor, table_name):
         """SELECT sql FROM sqlite_master WHERE
         tbl_name=? AND type='table'""", (table_name,))
     table_statement = cursor.fetchone()[0]
-    m = re.match(r"CREATE TABLE {} ?\((.*)\)".format(table_name),
-                 table_statement, re.IGNORECASE)
+    m = re.match(r"\s*CREATE\s+TABLE\s+{}\s*\((.*)\)$".format(table_name),
+                 table_statement, re.IGNORECASE | re.DOTALL | re.MULTILINE)
     if not m:
         _logger.error('table_info: could not find column names '
                       'for table {}'.format(table_name))
         return None
     info = m.group(1)
-    columns = re.match(r'(.*?)(, FOREIGN.*)?$', info).group(1)
+    columns = re.match(r'(.*?)(,\s*FOREIGN.*)?$', info,
+                       re.IGNORECASE | re.DOTALL | re.MULTILINE).group(1)
     columns = [pair.split() for pair in columns.split(',')]
     for c in columns:
         if len(c) == 1:
@@ -3046,6 +3108,18 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
     --------
     sqlite3
 
+    Notes
+    -----
+
+    When selecting images, you may want to consider using the view
+    ``valid_images``, rather than the whole ``images`` table. This
+    view selects the rows corresponding to images that:
+        - Are valid (according to the metadata field ``is_valid``).
+        - Are in MNI space.
+        - Are unthresholded.
+        - Are either Z, F or T maps.
+        - Are not in the ``_KNOWN_BAD_IMAGES`` set.
+
     Examples
     --------
     >>> data = read_sql_query("SELECT images.id AS image_id, "
@@ -3070,6 +3144,9 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
     if not as_columns:
         return resp
     col_names = resp[0].keys()
+    if len(set(col_names)) != len(col_names):
+        raise ValueError("Use 'AS' to give distinct names to the columns "
+                         "of the result of your SQL statement")
     cols = zip(*resp)
     cols = map(np.asarray, cols)
     response = OrderedDict(zip(col_names, cols))
@@ -3077,7 +3154,7 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
         return response
     alias_pattern = re.compile(
         r'\bneurosynth_words_absolute_path\b(?:\s+as\s+(\b\w+\b))?',
-        flags=re.IGNORECASE)
+        flags=(re.IGNORECASE | re.MULTILINE | re.DOTALL))
     match = re.search(alias_pattern, query)
     if match is None:
         return response
