@@ -125,7 +125,8 @@ def test_to_supported_type():
     assert_equal(nv._to_supported_type(None), None)
     assert_equal(nv._to_supported_type('None / Other'), None)
     assert_equal(nv._to_supported_type('abc'), 'abc')
-    assert_equal(nv._to_supported_type({'a': 0}), str({'a': 0}))
+    assert_equal(nv._to_supported_type({'a': 0}), json.dumps({'a': 0}))
+    assert_equal(nv._to_supported_type(u'\u2019'), u'\u2019')
 
 
 def test_append_filters_to_query():

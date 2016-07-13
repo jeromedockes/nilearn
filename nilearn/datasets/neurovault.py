@@ -54,6 +54,14 @@ from collections import OrderedDict, Sequence, defaultdict, Container
 import atexit
 import errno
 import traceback
+try:
+    from urllib.parse import urljoin, urlencode
+    from urllib.request import build_opener, Request
+    from urllib.error import URLError
+except ImportError:
+    from urlparse import urljoin
+    from urllib import urlencode
+    from urllib2 import build_opener, Request, URLError
 
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -61,11 +69,8 @@ import numpy as np
 from sklearn.datasets.base import Bunch
 from sklearn.feature_extraction import DictVectorizer
 
+from .._utils.compat import _basestring
 from .utils import _fetch_file, _get_dataset_dir
-from .._utils.compat import _urllib
-urljoin, urlencode = _urllib.parse.urljoin, _urllib.parse.urlencode
-URLError = _urllib.error.URLError
-Request, build_opener = _urllib.request.Request, _urllib.request.build_opener
 
 
 _NEUROVAULT_BASE_URL = 'http://neurovault.org/api/'
@@ -80,45 +85,61 @@ _DEFAULT_BATCH_SIZE = 100
 
 _PY_TO_SQL_TYPE = defaultdict(
     lambda: '',
-    {int: 'INTEGER', bool: 'INTEGER', float: 'REAL', str: 'TEXT'})
+    {int: 'INTEGER', bool: 'INTEGER', float: 'REAL', _basestring: 'TEXT'})
+
+try:
+    _PY_TO_SQL_TYPE[long] = 'INTEGER'
+    _PY_TO_SQL_TYPE[str] = 'TEXT'
+    _PY_TO_SQL_TYPE[unicode] = 'TEXT'
+    _PY_TO_SQL_TYPE[buffer] = 'BLOB'
+except NameError:
+    _PY_TO_SQL_TYPE[bytes] = 'BLOB'
 
 
 def _to_supported_type(obj):
     if obj is None:
         return None
-    if (isinstance(obj, str) and re.match(r'(none|null)', obj, re.IGNORECASE)):
+    if (isinstance(obj, _basestring) and re.match(
+            r'(none|null)', obj, re.IGNORECASE)):
         return None
     if type(obj) in _PY_TO_SQL_TYPE:
         return obj
-    return str(obj)
+    for t in _PY_TO_SQL_TYPE:
+        if isinstance(obj, t):
+            return obj
+    try:
+        return json.dumps(obj)
+    except TypeError:
+        pass
+    return u'{}'.format(obj)
 
 _IMAGE_BASIC_FIELDS = OrderedDict()
 _IMAGE_BASIC_FIELDS['id'] = int
-_IMAGE_BASIC_FIELDS['name'] = str
-_IMAGE_BASIC_FIELDS['relative_path'] = str
-_IMAGE_BASIC_FIELDS['absolute_path'] = str
+_IMAGE_BASIC_FIELDS['name'] = _basestring
+_IMAGE_BASIC_FIELDS['relative_path'] = _basestring
+_IMAGE_BASIC_FIELDS['absolute_path'] = _basestring
 _IMAGE_BASIC_FIELDS['collection_id'] = int
-_IMAGE_BASIC_FIELDS['collection'] = str
-_IMAGE_BASIC_FIELDS['add_date'] = str
-_IMAGE_BASIC_FIELDS['modify_date'] = str
-_IMAGE_BASIC_FIELDS['image_type'] = str
-_IMAGE_BASIC_FIELDS['map_type'] = str
-_IMAGE_BASIC_FIELDS['url'] = str
-_IMAGE_BASIC_FIELDS['file'] = str
+_IMAGE_BASIC_FIELDS['collection'] = _basestring
+_IMAGE_BASIC_FIELDS['add_date'] = _basestring
+_IMAGE_BASIC_FIELDS['modify_date'] = _basestring
+_IMAGE_BASIC_FIELDS['image_type'] = _basestring
+_IMAGE_BASIC_FIELDS['map_type'] = _basestring
+_IMAGE_BASIC_FIELDS['url'] = _basestring
+_IMAGE_BASIC_FIELDS['file'] = _basestring
 _IMAGE_BASIC_FIELDS['file_size'] = int
 _IMAGE_BASIC_FIELDS['is_thresholded'] = int
 _IMAGE_BASIC_FIELDS['is_valid'] = int
-_IMAGE_BASIC_FIELDS['modality'] = str
+_IMAGE_BASIC_FIELDS['modality'] = _basestring
 _IMAGE_BASIC_FIELDS['not_mni'] = int
-_IMAGE_BASIC_FIELDS['description'] = str
+_IMAGE_BASIC_FIELDS['description'] = _basestring
 _IMAGE_BASIC_FIELDS['brain_coverage'] = float
 _IMAGE_BASIC_FIELDS['perc_bad_voxels'] = float
 _IMAGE_BASIC_FIELDS['perc_voxels_outside'] = float
-_IMAGE_BASIC_FIELDS['reduced_representation'] = str
-_IMAGE_BASIC_FIELDS['reduced_representation_relative_path'] = str
-_IMAGE_BASIC_FIELDS['reduced_representation_absolute_path'] = str
-_IMAGE_BASIC_FIELDS['neurosynth_words_relative_path'] = str
-_IMAGE_BASIC_FIELDS['neurosynth_words_absolute_path'] = str
+_IMAGE_BASIC_FIELDS['reduced_representation'] = _basestring
+_IMAGE_BASIC_FIELDS['reduced_representation_relative_path'] = _basestring
+_IMAGE_BASIC_FIELDS['reduced_representation_absolute_path'] = _basestring
+_IMAGE_BASIC_FIELDS['neurosynth_words_relative_path'] = _basestring
+_IMAGE_BASIC_FIELDS['neurosynth_words_absolute_path'] = _basestring
 
 
 def _translate_types_to_sql(fields_dict):
@@ -158,211 +179,211 @@ _IMAGE_BASIC_FIELDS_SQL = _translate_types_to_sql(_IMAGE_BASIC_FIELDS)
 
 _COLLECTION_BASIC_FIELDS = OrderedDict()
 _COLLECTION_BASIC_FIELDS['id'] = int
-_COLLECTION_BASIC_FIELDS['relative_path'] = str
-_COLLECTION_BASIC_FIELDS['absolute_path'] = str
-_COLLECTION_BASIC_FIELDS['DOI'] = str
-_COLLECTION_BASIC_FIELDS['name'] = str
-_COLLECTION_BASIC_FIELDS['add_date'] = str
-_COLLECTION_BASIC_FIELDS['modify_date'] = str
+_COLLECTION_BASIC_FIELDS['relative_path'] = _basestring
+_COLLECTION_BASIC_FIELDS['absolute_path'] = _basestring
+_COLLECTION_BASIC_FIELDS['DOI'] = _basestring
+_COLLECTION_BASIC_FIELDS['name'] = _basestring
+_COLLECTION_BASIC_FIELDS['add_date'] = _basestring
+_COLLECTION_BASIC_FIELDS['modify_date'] = _basestring
 _COLLECTION_BASIC_FIELDS['number_of_images'] = int
-_COLLECTION_BASIC_FIELDS['url'] = str
+_COLLECTION_BASIC_FIELDS['url'] = _basestring
 _COLLECTION_BASIC_FIELDS['owner'] = int
-_COLLECTION_BASIC_FIELDS['owner_name'] = str
-_COLLECTION_BASIC_FIELDS['contributors'] = str
-_COLLECTION_BASIC_FIELDS['description'] = str
+_COLLECTION_BASIC_FIELDS['owner_name'] = _basestring
+_COLLECTION_BASIC_FIELDS['contributors'] = _basestring
+_COLLECTION_BASIC_FIELDS['description'] = _basestring
 
 _COLLECTION_BASIC_FIELDS_SQL = _translate_types_to_sql(
     _COLLECTION_BASIC_FIELDS)
 
 _ALL_IMAGE_FIELDS = copy(_IMAGE_BASIC_FIELDS)
 
-_ALL_IMAGE_FIELDS['comment'] = str
+_ALL_IMAGE_FIELDS['comment'] = _basestring
 _ALL_IMAGE_FIELDS['is_bad'] = bool
-_ALL_IMAGE_FIELDS['clean_img_relative_path'] = str
-_ALL_IMAGE_FIELDS['clean_img_absolute_path'] = str
-_ALL_IMAGE_FIELDS['Action Observation'] = str
-_ALL_IMAGE_FIELDS['Acupuncture'] = str
-_ALL_IMAGE_FIELDS['Age'] = str
-_ALL_IMAGE_FIELDS['Anti-Saccades'] = str
-_ALL_IMAGE_FIELDS['Braille Reading'] = str
-_ALL_IMAGE_FIELDS['Breath-Holding'] = str
-_ALL_IMAGE_FIELDS['CIAS'] = str
-_ALL_IMAGE_FIELDS['Chewing/Swallowing'] = str
-_ALL_IMAGE_FIELDS['Classical Conditioning'] = str
-_ALL_IMAGE_FIELDS['Counting/Calculation'] = str
-_ALL_IMAGE_FIELDS['Cued Explicit Recognition'] = str
-_ALL_IMAGE_FIELDS['Deception Task'] = str
-_ALL_IMAGE_FIELDS['Deductive Reasoning'] = str
-_ALL_IMAGE_FIELDS['Delay Discounting Task'] = str
-_ALL_IMAGE_FIELDS['Delayed Match To Sample'] = str
-_ALL_IMAGE_FIELDS['Divided Auditory Attention'] = str
-_ALL_IMAGE_FIELDS['Drawing'] = str
-_ALL_IMAGE_FIELDS['Eating/Drinking'] = str
-_ALL_IMAGE_FIELDS['Encoding'] = str
-_ALL_IMAGE_FIELDS['Episodic Recall'] = str
-_ALL_IMAGE_FIELDS['Face Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['Film Viewing'] = str
-_ALL_IMAGE_FIELDS['Finger Tapping'] = str
-_ALL_IMAGE_FIELDS['Fixation'] = str
-_ALL_IMAGE_FIELDS['Flanker Task'] = str
-_ALL_IMAGE_FIELDS['Flashing Checkerboard'] = str
-_ALL_IMAGE_FIELDS['Flexion/Extension'] = str
-_ALL_IMAGE_FIELDS['Free Word List Recall'] = str
-_ALL_IMAGE_FIELDS['Go/No-Go'] = str
-_ALL_IMAGE_FIELDS['Grasping'] = str
-_ALL_IMAGE_FIELDS['Imagined Movement'] = str
-_ALL_IMAGE_FIELDS['Imagined Objects/Scenes'] = str
-_ALL_IMAGE_FIELDS['Isometric Force'] = str
-_ALL_IMAGE_FIELDS['Mental Rotation'] = str
-_ALL_IMAGE_FIELDS['Micturition Task'] = str
-_ALL_IMAGE_FIELDS['Music Comprehension/Production'] = str
-_ALL_IMAGE_FIELDS['Naming Covert)'] = str
-_ALL_IMAGE_FIELDS['Naming Overt)'] = str
-_ALL_IMAGE_FIELDS['Non-Painful Electrical Stimulation'] = str
-_ALL_IMAGE_FIELDS['Non-Painful Thermal Stimulation'] = str
-_ALL_IMAGE_FIELDS['Oddball Discrimination'] = str
-_ALL_IMAGE_FIELDS['Olfactory Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['Orthographic Discrimination'] = str
-_ALL_IMAGE_FIELDS['Pain Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['PainLevel'] = str
-_ALL_IMAGE_FIELDS['Paired Associate Recall'] = str
-_ALL_IMAGE_FIELDS['Passive Listening'] = str
-_ALL_IMAGE_FIELDS['Passive Viewing'] = str
-_ALL_IMAGE_FIELDS['Phonological Discrimination'] = str
-_ALL_IMAGE_FIELDS['Pitch Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['Pointing'] = str
-_ALL_IMAGE_FIELDS['Posner Task'] = str
-_ALL_IMAGE_FIELDS['Reading Covert)'] = str
-_ALL_IMAGE_FIELDS['Reading Overt)'] = str
-_ALL_IMAGE_FIELDS['Recitation/Repetition Covert)'] = str
-_ALL_IMAGE_FIELDS['Recitation/Repetition Overt)'] = str
-_ALL_IMAGE_FIELDS['Rest'] = str
-_ALL_IMAGE_FIELDS['Reward Task'] = str
-_ALL_IMAGE_FIELDS['Saccades'] = str
-_ALL_IMAGE_FIELDS['Semantic Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['Sequence Recall/Learning'] = str
-_ALL_IMAGE_FIELDS['Sex'] = str
-_ALL_IMAGE_FIELDS['Simon Task'] = str
-_ALL_IMAGE_FIELDS['Sleep'] = str
-_ALL_IMAGE_FIELDS['Spatial/Location Discrimination'] = str
-_ALL_IMAGE_FIELDS['Sternberg Task'] = str
-_ALL_IMAGE_FIELDS['Stroop Task'] = str
-_ALL_IMAGE_FIELDS['SubjectID'] = str
-_ALL_IMAGE_FIELDS['Subjective Emotional Picture Discrimination'] = str
-_ALL_IMAGE_FIELDS['Syntactic Discrimination'] = str
-_ALL_IMAGE_FIELDS['Tactile Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['Task Switching'] = str
-_ALL_IMAGE_FIELDS['Theory of Mind Task'] = str
-_ALL_IMAGE_FIELDS['Tone Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['Tower of London'] = str
-_ALL_IMAGE_FIELDS['Transcranial Magnetic Stimulation'] = str
-_ALL_IMAGE_FIELDS['Vibrotactile Monitor/Discrimination'] = str
-_ALL_IMAGE_FIELDS['Video Games'] = str
-_ALL_IMAGE_FIELDS['Visual Distractor/Visual Attention'] = str
-_ALL_IMAGE_FIELDS['Visual Pursuit/Tracking'] = str
-_ALL_IMAGE_FIELDS['Whistling'] = str
-_ALL_IMAGE_FIELDS['Wisconsin Card Sorting Test'] = str
-_ALL_IMAGE_FIELDS['Word Generation Covert)'] = str
-_ALL_IMAGE_FIELDS['Word Generation Overt)'] = str
-_ALL_IMAGE_FIELDS['Word Stem Completion Covert)'] = str
-_ALL_IMAGE_FIELDS['Word Stem Completion Overt)'] = str
-_ALL_IMAGE_FIELDS['Writing'] = str
-_ALL_IMAGE_FIELDS['analysis_level'] = str
-_ALL_IMAGE_FIELDS['cognitive_contrast_cogatlas'] = str
-_ALL_IMAGE_FIELDS['cognitive_contrast_cogatlas_id'] = str
-_ALL_IMAGE_FIELDS['cognitive_paradigm_cogatlas'] = str
-_ALL_IMAGE_FIELDS['cognitive_paradigm_cogatlas_id'] = str
-_ALL_IMAGE_FIELDS['contrast_definition'] = str
-_ALL_IMAGE_FIELDS['contrast_definition_cogatlas'] = str
+_ALL_IMAGE_FIELDS['clean_img_relative_path'] = _basestring
+_ALL_IMAGE_FIELDS['clean_img_absolute_path'] = _basestring
+_ALL_IMAGE_FIELDS['Action Observation'] = _basestring
+_ALL_IMAGE_FIELDS['Acupuncture'] = _basestring
+_ALL_IMAGE_FIELDS['Age'] = _basestring
+_ALL_IMAGE_FIELDS['Anti-Saccades'] = _basestring
+_ALL_IMAGE_FIELDS['Braille Reading'] = _basestring
+_ALL_IMAGE_FIELDS['Breath-Holding'] = _basestring
+_ALL_IMAGE_FIELDS['CIAS'] = _basestring
+_ALL_IMAGE_FIELDS['Chewing/Swallowing'] = _basestring
+_ALL_IMAGE_FIELDS['Classical Conditioning'] = _basestring
+_ALL_IMAGE_FIELDS['Counting/Calculation'] = _basestring
+_ALL_IMAGE_FIELDS['Cued Explicit Recognition'] = _basestring
+_ALL_IMAGE_FIELDS['Deception Task'] = _basestring
+_ALL_IMAGE_FIELDS['Deductive Reasoning'] = _basestring
+_ALL_IMAGE_FIELDS['Delay Discounting Task'] = _basestring
+_ALL_IMAGE_FIELDS['Delayed Match To Sample'] = _basestring
+_ALL_IMAGE_FIELDS['Divided Auditory Attention'] = _basestring
+_ALL_IMAGE_FIELDS['Drawing'] = _basestring
+_ALL_IMAGE_FIELDS['Eating/Drinking'] = _basestring
+_ALL_IMAGE_FIELDS['Encoding'] = _basestring
+_ALL_IMAGE_FIELDS['Episodic Recall'] = _basestring
+_ALL_IMAGE_FIELDS['Face Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Film Viewing'] = _basestring
+_ALL_IMAGE_FIELDS['Finger Tapping'] = _basestring
+_ALL_IMAGE_FIELDS['Fixation'] = _basestring
+_ALL_IMAGE_FIELDS['Flanker Task'] = _basestring
+_ALL_IMAGE_FIELDS['Flashing Checkerboard'] = _basestring
+_ALL_IMAGE_FIELDS['Flexion/Extension'] = _basestring
+_ALL_IMAGE_FIELDS['Free Word List Recall'] = _basestring
+_ALL_IMAGE_FIELDS['Go/No-Go'] = _basestring
+_ALL_IMAGE_FIELDS['Grasping'] = _basestring
+_ALL_IMAGE_FIELDS['Imagined Movement'] = _basestring
+_ALL_IMAGE_FIELDS['Imagined Objects/Scenes'] = _basestring
+_ALL_IMAGE_FIELDS['Isometric Force'] = _basestring
+_ALL_IMAGE_FIELDS['Mental Rotation'] = _basestring
+_ALL_IMAGE_FIELDS['Micturition Task'] = _basestring
+_ALL_IMAGE_FIELDS['Music Comprehension/Production'] = _basestring
+_ALL_IMAGE_FIELDS['Naming Covert)'] = _basestring
+_ALL_IMAGE_FIELDS['Naming Overt)'] = _basestring
+_ALL_IMAGE_FIELDS['Non-Painful Electrical Stimulation'] = _basestring
+_ALL_IMAGE_FIELDS['Non-Painful Thermal Stimulation'] = _basestring
+_ALL_IMAGE_FIELDS['Oddball Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Olfactory Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Orthographic Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Pain Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['PainLevel'] = _basestring
+_ALL_IMAGE_FIELDS['Paired Associate Recall'] = _basestring
+_ALL_IMAGE_FIELDS['Passive Listening'] = _basestring
+_ALL_IMAGE_FIELDS['Passive Viewing'] = _basestring
+_ALL_IMAGE_FIELDS['Phonological Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Pitch Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Pointing'] = _basestring
+_ALL_IMAGE_FIELDS['Posner Task'] = _basestring
+_ALL_IMAGE_FIELDS['Reading Covert)'] = _basestring
+_ALL_IMAGE_FIELDS['Reading Overt)'] = _basestring
+_ALL_IMAGE_FIELDS['Recitation/Repetition Covert)'] = _basestring
+_ALL_IMAGE_FIELDS['Recitation/Repetition Overt)'] = _basestring
+_ALL_IMAGE_FIELDS['Rest'] = _basestring
+_ALL_IMAGE_FIELDS['Reward Task'] = _basestring
+_ALL_IMAGE_FIELDS['Saccades'] = _basestring
+_ALL_IMAGE_FIELDS['Semantic Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Sequence Recall/Learning'] = _basestring
+_ALL_IMAGE_FIELDS['Sex'] = _basestring
+_ALL_IMAGE_FIELDS['Simon Task'] = _basestring
+_ALL_IMAGE_FIELDS['Sleep'] = _basestring
+_ALL_IMAGE_FIELDS['Spatial/Location Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Sternberg Task'] = _basestring
+_ALL_IMAGE_FIELDS['Stroop Task'] = _basestring
+_ALL_IMAGE_FIELDS['SubjectID'] = _basestring
+_ALL_IMAGE_FIELDS['Subjective Emotional Picture Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Syntactic Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Tactile Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Task Switching'] = _basestring
+_ALL_IMAGE_FIELDS['Theory of Mind Task'] = _basestring
+_ALL_IMAGE_FIELDS['Tone Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Tower of London'] = _basestring
+_ALL_IMAGE_FIELDS['Transcranial Magnetic Stimulation'] = _basestring
+_ALL_IMAGE_FIELDS['Vibrotactile Monitor/Discrimination'] = _basestring
+_ALL_IMAGE_FIELDS['Video Games'] = _basestring
+_ALL_IMAGE_FIELDS['Visual Distractor/Visual Attention'] = _basestring
+_ALL_IMAGE_FIELDS['Visual Pursuit/Tracking'] = _basestring
+_ALL_IMAGE_FIELDS['Whistling'] = _basestring
+_ALL_IMAGE_FIELDS['Wisconsin Card Sorting Test'] = _basestring
+_ALL_IMAGE_FIELDS['Word Generation Covert)'] = _basestring
+_ALL_IMAGE_FIELDS['Word Generation Overt)'] = _basestring
+_ALL_IMAGE_FIELDS['Word Stem Completion Covert)'] = _basestring
+_ALL_IMAGE_FIELDS['Word Stem Completion Overt)'] = _basestring
+_ALL_IMAGE_FIELDS['Writing'] = _basestring
+_ALL_IMAGE_FIELDS['analysis_level'] = _basestring
+_ALL_IMAGE_FIELDS['cognitive_contrast_cogatlas'] = _basestring
+_ALL_IMAGE_FIELDS['cognitive_contrast_cogatlas_id'] = _basestring
+_ALL_IMAGE_FIELDS['cognitive_paradigm_cogatlas'] = _basestring
+_ALL_IMAGE_FIELDS['cognitive_paradigm_cogatlas_id'] = _basestring
+_ALL_IMAGE_FIELDS['contrast_definition'] = _basestring
+_ALL_IMAGE_FIELDS['contrast_definition_cogatlas'] = _basestring
 _ALL_IMAGE_FIELDS['data'] = dict
-_ALL_IMAGE_FIELDS['figure'] = str
-_ALL_IMAGE_FIELDS['label_description_file'] = str
-_ALL_IMAGE_FIELDS['n-back'] = str
-_ALL_IMAGE_FIELDS['nidm_results'] = str
-_ALL_IMAGE_FIELDS['nidm_results_ttl'] = str
+_ALL_IMAGE_FIELDS['figure'] = _basestring
+_ALL_IMAGE_FIELDS['label_description_file'] = _basestring
+_ALL_IMAGE_FIELDS['n-back'] = _basestring
+_ALL_IMAGE_FIELDS['nidm_results'] = _basestring
+_ALL_IMAGE_FIELDS['nidm_results_ttl'] = _basestring
 _ALL_IMAGE_FIELDS['number_of_subjects'] = int
 _ALL_IMAGE_FIELDS['smoothness_fwhm'] = float
 _ALL_IMAGE_FIELDS['statistic_parameters'] = float
-_ALL_IMAGE_FIELDS['thumbnail'] = str
-_ALL_IMAGE_FIELDS['type'] = str
+_ALL_IMAGE_FIELDS['thumbnail'] = _basestring
+_ALL_IMAGE_FIELDS['type'] = _basestring
 
 _ALL_IMAGE_FIELDS_SQL = _translate_types_to_sql(_ALL_IMAGE_FIELDS)
 
 _ALL_COLLECTION_FIELDS = copy(_COLLECTION_BASIC_FIELDS)
-_ALL_COLLECTION_FIELDS['acquisition_orientation'] = str
-_ALL_COLLECTION_FIELDS['authors'] = str
-_ALL_COLLECTION_FIELDS['autocorrelation_model'] = str
-_ALL_COLLECTION_FIELDS['b0_unwarping_software'] = str
-_ALL_COLLECTION_FIELDS['coordinate_space'] = str
-_ALL_COLLECTION_FIELDS['doi_add_date'] = str
+_ALL_COLLECTION_FIELDS['acquisition_orientation'] = _basestring
+_ALL_COLLECTION_FIELDS['authors'] = _basestring
+_ALL_COLLECTION_FIELDS['autocorrelation_model'] = _basestring
+_ALL_COLLECTION_FIELDS['b0_unwarping_software'] = _basestring
+_ALL_COLLECTION_FIELDS['coordinate_space'] = _basestring
+_ALL_COLLECTION_FIELDS['doi_add_date'] = _basestring
 _ALL_COLLECTION_FIELDS['echo_time'] = float
 _ALL_COLLECTION_FIELDS['field_of_view'] = float
 _ALL_COLLECTION_FIELDS['field_strength'] = float
 _ALL_COLLECTION_FIELDS['flip_angle'] = float
-_ALL_COLLECTION_FIELDS['full_dataset_url'] = str
+_ALL_COLLECTION_FIELDS['full_dataset_url'] = _basestring
 _ALL_COLLECTION_FIELDS['functional_coregistered_to_structural'] = bool
-_ALL_COLLECTION_FIELDS['functional_coregistration_method'] = str
+_ALL_COLLECTION_FIELDS['functional_coregistration_method'] = _basestring
 _ALL_COLLECTION_FIELDS['group_comparison'] = bool
-_ALL_COLLECTION_FIELDS['group_description'] = str
-_ALL_COLLECTION_FIELDS['group_estimation_type'] = str
-_ALL_COLLECTION_FIELDS['group_inference_type'] = str
-_ALL_COLLECTION_FIELDS['group_model_multilevel'] = str
-_ALL_COLLECTION_FIELDS['group_model_type'] = str
-_ALL_COLLECTION_FIELDS['group_modeling_software'] = str
+_ALL_COLLECTION_FIELDS['group_description'] = _basestring
+_ALL_COLLECTION_FIELDS['group_estimation_type'] = _basestring
+_ALL_COLLECTION_FIELDS['group_inference_type'] = _basestring
+_ALL_COLLECTION_FIELDS['group_model_multilevel'] = _basestring
+_ALL_COLLECTION_FIELDS['group_model_type'] = _basestring
+_ALL_COLLECTION_FIELDS['group_modeling_software'] = _basestring
 _ALL_COLLECTION_FIELDS['group_repeated_measures'] = bool
-_ALL_COLLECTION_FIELDS['group_repeated_measures_method'] = str
-_ALL_COLLECTION_FIELDS['handedness'] = str
-_ALL_COLLECTION_FIELDS['hemodynamic_response_function'] = str
-_ALL_COLLECTION_FIELDS['high_pass_filter_method'] = str
-_ALL_COLLECTION_FIELDS['inclusion_exclusion_criteria'] = str
-_ALL_COLLECTION_FIELDS['interpolation_method'] = str
-_ALL_COLLECTION_FIELDS['intersubject_registration_software'] = str
-_ALL_COLLECTION_FIELDS['intersubject_transformation_type'] = str
-_ALL_COLLECTION_FIELDS['intrasubject_estimation_type'] = str
-_ALL_COLLECTION_FIELDS['intrasubject_model_type'] = str
-_ALL_COLLECTION_FIELDS['intrasubject_modeling_software'] = str
-_ALL_COLLECTION_FIELDS['journal_name'] = str
+_ALL_COLLECTION_FIELDS['group_repeated_measures_method'] = _basestring
+_ALL_COLLECTION_FIELDS['handedness'] = _basestring
+_ALL_COLLECTION_FIELDS['hemodynamic_response_function'] = _basestring
+_ALL_COLLECTION_FIELDS['high_pass_filter_method'] = _basestring
+_ALL_COLLECTION_FIELDS['inclusion_exclusion_criteria'] = _basestring
+_ALL_COLLECTION_FIELDS['interpolation_method'] = _basestring
+_ALL_COLLECTION_FIELDS['intersubject_registration_software'] = _basestring
+_ALL_COLLECTION_FIELDS['intersubject_transformation_type'] = _basestring
+_ALL_COLLECTION_FIELDS['intrasubject_estimation_type'] = _basestring
+_ALL_COLLECTION_FIELDS['intrasubject_model_type'] = _basestring
+_ALL_COLLECTION_FIELDS['intrasubject_modeling_software'] = _basestring
+_ALL_COLLECTION_FIELDS['journal_name'] = _basestring
 _ALL_COLLECTION_FIELDS['length_of_blocks'] = float
 _ALL_COLLECTION_FIELDS['length_of_runs'] = float
-_ALL_COLLECTION_FIELDS['length_of_trials'] = str
+_ALL_COLLECTION_FIELDS['length_of_trials'] = _basestring
 _ALL_COLLECTION_FIELDS['matrix_size'] = int
-_ALL_COLLECTION_FIELDS['motion_correction_interpolation'] = str
-_ALL_COLLECTION_FIELDS['motion_correction_metric'] = str
-_ALL_COLLECTION_FIELDS['motion_correction_reference'] = str
-_ALL_COLLECTION_FIELDS['motion_correction_software'] = str
-_ALL_COLLECTION_FIELDS['nonlinear_transform_type'] = str
+_ALL_COLLECTION_FIELDS['motion_correction_interpolation'] = _basestring
+_ALL_COLLECTION_FIELDS['motion_correction_metric'] = _basestring
+_ALL_COLLECTION_FIELDS['motion_correction_reference'] = _basestring
+_ALL_COLLECTION_FIELDS['motion_correction_software'] = _basestring
+_ALL_COLLECTION_FIELDS['nonlinear_transform_type'] = _basestring
 _ALL_COLLECTION_FIELDS['number_of_experimental_units'] = int
 _ALL_COLLECTION_FIELDS['number_of_imaging_runs'] = int
 _ALL_COLLECTION_FIELDS['number_of_rejected_subjects'] = int
-_ALL_COLLECTION_FIELDS['object_image_type'] = str
+_ALL_COLLECTION_FIELDS['object_image_type'] = _basestring
 _ALL_COLLECTION_FIELDS['optimization'] = bool
-_ALL_COLLECTION_FIELDS['optimization_method'] = str
-_ALL_COLLECTION_FIELDS['order_of_acquisition'] = str
-_ALL_COLLECTION_FIELDS['order_of_preprocessing_operations'] = str
-_ALL_COLLECTION_FIELDS['orthogonalization_description'] = str
-_ALL_COLLECTION_FIELDS['paper_url'] = str
-_ALL_COLLECTION_FIELDS['parallel_imaging'] = str
+_ALL_COLLECTION_FIELDS['optimization_method'] = _basestring
+_ALL_COLLECTION_FIELDS['order_of_acquisition'] = _basestring
+_ALL_COLLECTION_FIELDS['order_of_preprocessing_operations'] = _basestring
+_ALL_COLLECTION_FIELDS['orthogonalization_description'] = _basestring
+_ALL_COLLECTION_FIELDS['paper_url'] = _basestring
+_ALL_COLLECTION_FIELDS['parallel_imaging'] = _basestring
 _ALL_COLLECTION_FIELDS['proportion_male_subjects'] = float
-_ALL_COLLECTION_FIELDS['pulse_sequence'] = str
-_ALL_COLLECTION_FIELDS['quality_control'] = str
+_ALL_COLLECTION_FIELDS['pulse_sequence'] = _basestring
+_ALL_COLLECTION_FIELDS['quality_control'] = _basestring
 _ALL_COLLECTION_FIELDS['repetition_time'] = float
 _ALL_COLLECTION_FIELDS['resampled_voxel_size'] = float
-_ALL_COLLECTION_FIELDS['scanner_make'] = str
-_ALL_COLLECTION_FIELDS['scanner_model'] = str
+_ALL_COLLECTION_FIELDS['scanner_make'] = _basestring
+_ALL_COLLECTION_FIELDS['scanner_model'] = _basestring
 _ALL_COLLECTION_FIELDS['skip_distance'] = float
 _ALL_COLLECTION_FIELDS['slice_thickness'] = float
-_ALL_COLLECTION_FIELDS['slice_timing_correction_software'] = str
+_ALL_COLLECTION_FIELDS['slice_timing_correction_software'] = _basestring
 _ALL_COLLECTION_FIELDS['smoothing_fwhm'] = float
-_ALL_COLLECTION_FIELDS['smoothing_type'] = str
-_ALL_COLLECTION_FIELDS['software_package'] = str
-_ALL_COLLECTION_FIELDS['software_version'] = str
+_ALL_COLLECTION_FIELDS['smoothing_type'] = _basestring
+_ALL_COLLECTION_FIELDS['software_package'] = _basestring
+_ALL_COLLECTION_FIELDS['software_version'] = _basestring
 _ALL_COLLECTION_FIELDS['subject_age_max'] = float
 _ALL_COLLECTION_FIELDS['subject_age_mean'] = float
 _ALL_COLLECTION_FIELDS['subject_age_min'] = float
 _ALL_COLLECTION_FIELDS['target_resolution'] = float
-_ALL_COLLECTION_FIELDS['target_template_image'] = str
-_ALL_COLLECTION_FIELDS['transform_similarity_metric'] = str
-_ALL_COLLECTION_FIELDS['type_of_design'] = str
+_ALL_COLLECTION_FIELDS['target_template_image'] = _basestring
+_ALL_COLLECTION_FIELDS['transform_similarity_metric'] = _basestring
+_ALL_COLLECTION_FIELDS['type_of_design'] = _basestring
 _ALL_COLLECTION_FIELDS['used_b0_unwarping'] = bool
 _ALL_COLLECTION_FIELDS['used_dispersion_derivatives'] = bool
 _ALL_COLLECTION_FIELDS['used_high_pass_filter'] = bool
@@ -854,7 +875,7 @@ class Pattern(_SpecialValue):
         self.flags_ = flags
 
     def __eq__(self, other):
-        if not isinstance(other, str) or re.match(
+        if not isinstance(other, _basestring) or re.match(
                 self.pattern_, other, self.flags_) is None:
             return False
         return True
@@ -1288,7 +1309,7 @@ def _remove_none_strings(metadata):
 
     """
     for key, value in metadata.items():
-        if (isinstance(value, str) and
+        if (isinstance(value, _basestring) and
             re.match(r'(none|null)', value, re.IGNORECASE)):
             metadata[key] = None
     return metadata
@@ -2266,7 +2287,8 @@ def _split_terms(terms, available_on_server):
     terms_ = dict(terms)
     server_terms = {k: terms_.pop(k) for k in
                     available_on_server.intersection(terms_.keys()) if
-                    isinstance(terms_[k], str) or isinstance(terms_[k], int)}
+                    isinstance(terms_[k], _basestring) or
+                    isinstance(terms_[k], int)}
     return terms_, server_terms
 
 
