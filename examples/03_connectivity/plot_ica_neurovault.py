@@ -44,6 +44,9 @@ def clean_img(img, dtype=np.float32):
 # Get image and term data
 
 # Download 500 images
+print("Fetching Neurovault images; "
+      "if you haven't downloaded any Neurovault data before "
+      "this will take several minutes")
 nv_data = nv.fetch_neurovault(max_images=500, fetch_neurosynth_words=True)
 
 images = nv_data['images']
@@ -103,7 +106,7 @@ ica_maps = fast_ica.fit_transform(X.T).T
 term_weights_for_components = np.dot(fast_ica.components_, term_weights)
 
 # Generate figures ##########################################################
-plt.rcParams['figure.max_open_warning'] = n_components + 1
+plt.rcParams['figure.max_open_warning'] = n_components + 2
 
 for index, (ic_map, ic_terms) in enumerate(zip(
         ica_maps, term_weights_for_components)):

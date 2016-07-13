@@ -25,18 +25,23 @@ from nilearn.datasets import neurovault as nv
 nv_data = nv.fetch_neurovault(
     max_images=7,
     cognitive_paradigm_cogatlas=nv.Contains('stop signal'),
-    contrast_definition=nv.Contains('succ', 'stop', 'go'),
-    mode='offline')
+    contrast_definition=nv.Contains('succ', 'stop', 'go'))
 
 images, collections = nv_data['images_meta'], nv_data['collections_meta']
-print("\nParadigms we've downloaded:")
-print("{:->26}".format(""))
+
+######################################################################
+# Display the paradigms and contrast definitions we've found.
+
+def print_title(title, offset=0):
+    print('\n{0: <{w}}{1}'.format('', title, w=offset))
+    print('{0: <{w}}{0:-<{t_w}}'.format('', w=offset, t_w=len(title)))
+
+print_title("Paradigms we've downloaded:")
 for im in images:
     print("{:>10} : {:<}".format(im['id'],
                                  im['cognitive_paradigm_cogatlas']))
 
-print("\nContrast definitions for downloaded images:")
-print("{:->42}".format(""))
+print_title("Contrast definitions for downloaded images:")
 for cd in np.unique([im['contrast_definition'] for im in images]):
     print("{:>10}{}".format("", cd))
 
@@ -70,7 +75,7 @@ ids = set()
 print("\nComputing maps...")
 for collection in [col for col in collections
                    if not(col['id'] in ids or ids.add(col['id']))]:
-    print("\nCollection {}".format(collection['id']))
+    print_title("Collection {}:".format(collection['id']))
 
     # convert t to z
     cur_imgs = [im for im in images if im['collection_id'] == collection['id']]

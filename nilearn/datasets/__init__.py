@@ -29,4 +29,5 @@ __all__ = ['fetch_icbm152_2009', 'load_mni152_template', 'fetch_oasis_vbm',
            'fetch_atlas_yeo_2011', 'fetch_mixed_gambles', 'fetch_atlas_aal',
            'fetch_megatrawls_netmats', 'fetch_cobre',
            'fetch_atlas_basc_multiscale_2015', 'fetch_coords_dosenbach_2010',
-           'load_mni152_brain_mask', 'fetch_icbm152_brain_gm_mask']
+           'load_mni152_brain_mask', 'fetch_icbm152_brain_gm_mask',
+           'neurovault']

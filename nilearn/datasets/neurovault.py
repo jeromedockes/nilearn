@@ -2427,8 +2427,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
             return
         except Exception:
             _logger.exception('downloading data from server stopped early')
-            _logger.error('downloading data from server stopped early: '
-                          'see stacktrace above')
+            warnings.warn('downloading data from Neurovault stopped early')
             return
         yield image, collection
 

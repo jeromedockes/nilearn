@@ -38,8 +38,6 @@ New features
       img on another one (just resampling / interpolation, no
       coregistration)
 
-    - New fetcher for Neurovault data
-
 API changes summary
 ...................
     - Atlas fetcher :func:`nilearn.datasets.fetch_atlas_msdl` now returns directly
