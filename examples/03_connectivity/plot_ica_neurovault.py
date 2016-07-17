@@ -46,29 +46,29 @@ def clean_img(img, dtype=np.float32):
 # Download 500 images
 print("Fetching Neurovault images; "
       "if you haven't downloaded any Neurovault data before "
-      "this will take several minutes")
+      "this will take several minutes.")
 nv_data = nv.fetch_neurovault(max_images=500, fetch_neurosynth_words=True)
 
 images = nv_data['images']
 term_weights = nv_data['word_frequencies']
 vocabulary = nv_data['vocabulary']
 
-# Clean & report term scores
+# Clean and report term scores
 term_weights[term_weights < 0] = 0
 total_scores = np.mean(term_weights, axis=0)
 
 print("\nTop 10 neurosynth terms from downloaded images:\n")
-print('{:>40} : {}'.format('term', 'total score'))
-print('{:>54}'.format('-'*26))
+print('{2:>20}{0:>15} : {1:<15}\n{2:>20}{2:->30}'.format(
+    'term', 'total score', ''))
 for term_idx in np.argsort(total_scores)[-10:][::-1]:
-    print('{:>40} : {:.3f}'.format(
+    print('{:>35} : {:.3f}'.format(
         vocabulary[term_idx], total_scores[term_idx]))
 
 
 ######################################################################
 # Reshape and mask images
 
-print("Reshaping and masking images.")
+print("\nReshaping and masking images.\n")
 
 mask_img = load_mni152_brain_mask()
 masker = NiftiMasker(mask_img=mask_img, memory='nilearn_cache')
@@ -104,8 +104,12 @@ fast_ica = FastICA(n_components=n_components, random_state=0)
 ica_maps = fast_ica.fit_transform(X.T).T
 
 term_weights_for_components = np.dot(fast_ica.components_, term_weights)
+print('Done, plotting results.')
 
-# Generate figures ##########################################################
+
+######################################################################
+# Generate figures
+
 plt.rcParams['figure.max_open_warning'] = n_components + 2
 
 for index, (ic_map, ic_terms) in enumerate(zip(
@@ -122,7 +126,7 @@ for index, (ic_map, ic_terms) in enumerate(zip(
 
     # Use the 4 terms weighted most as a title
     important_terms = vocabulary[np.argsort(ic_terms)[-4:]]
-    title = '%d: %s' % (index, ', '.join(important_terms[::-1]))
+    title = '{}: {}'.format(index, ', '.join(important_terms[::-1]))
     display.title(title, size=16)
 
 # Done.

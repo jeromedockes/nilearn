@@ -25,16 +25,19 @@ from nilearn.datasets import neurovault as nv
 nv_data = nv.fetch_neurovault(
     max_images=7,
     cognitive_paradigm_cogatlas=nv.Contains('stop signal'),
-    contrast_definition=nv.Contains('succ', 'stop', 'go'))
+    contrast_definition=nv.Contains('succ', 'stop', 'go'),
+    map_type='T map')
 
 images, collections = nv_data['images_meta'], nv_data['collections_meta']
+
 
 ######################################################################
 # Display the paradigms and contrast definitions we've found.
 
-def print_title(title, offset=0):
-    print('\n{0: <{w}}{1}'.format('', title, w=offset))
-    print('{0: <{w}}{0:-<{t_w}}'.format('', w=offset, t_w=len(title)))
+
+def print_title(title):
+    print('\n{0}\n{2:-<{1}}'.format(title, len(title), ''))
+
 
 print_title("Paradigms we've downloaded:")
 for im in images:
@@ -66,8 +69,6 @@ def t_to_z(t_scores, deg_of_freedom):
 
 
 # Compute z values
-analysis_dir = '.'
-
 mean_maps = []
 p_datas = []
 z_datas = []
@@ -83,14 +84,9 @@ for collection in [col for col in collections
     for im in cur_imgs:
         # Load and validate the downloaded image.
         nii = nb.load(im['absolute_path'])
-        assert im['map_type'] == 'T map', "We assume T-maps"
         deg_of_freedom = im['number_of_subjects'] - 2
         print("{:>10}Image {:>4}: degrees of freedom: {}".format(
             "", im['id'], deg_of_freedom))
-        if image_z_niis:
-            assert np.allclose(
-                image_z_niis[0].get_affine(), nii.get_affine()), (
-                    "We assume all images are in the same space.")
 
         # Convert data, create new image.
         data_z, data_p = t_to_z(nii.get_data(), deg_of_freedom=deg_of_freedom)

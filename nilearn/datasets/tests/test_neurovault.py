@@ -606,15 +606,3 @@ def test_move_col_id():
         {'collection_id': 1, 'not_mni': False}, {'id': 2})
     assert_equal(im_terms, {'not_mni': False, 'collection_id': 1})
     assert_equal(col_terms, {'id': 2})
-
-
-# TODO: remove this
-if __name__ == '__main__':
-    import collections
-    import sys
-    for name in dir(sys.modules[__name__]):
-        obj = getattr(sys.modules[__name__], name)
-        if name.startswith('test') and isinstance(obj, collections.Callable):
-            print('calling {}'.format(name))
-            obj()
-    print('completed successfully')

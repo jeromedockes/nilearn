@@ -399,13 +399,13 @@ _ALL_COLLECTION_FIELDS['used_temporal_derivatives'] = bool
 
 _ALL_COLLECTION_FIELDS_SQL = _translate_types_to_sql(_ALL_COLLECTION_FIELDS)
 
-_KNOWN_BAD_COLLECTION_IDS = {16, 835}  # The files don't seem to exist
-_KNOWN_BAD_IMAGE_IDS = {
+_KNOWN_BAD_COLLECTION_IDS = (16, 835)  # The files don't seem to exist
+_KNOWN_BAD_IMAGE_IDS = (
     96, 97, 98,                    # The following maps are not brain maps
     338, 339,                      # And the following are crap
     335,                           # 335 is a duplicate of 336
     3360, 3362, 3364,              # These are mean images, and not Z maps
-    1202, 1163, 1931, 1101, 1099}  # Ugly / obviously not Z maps
+    1202, 1163, 1931, 1101, 1099)  # Ugly / obviously not Z maps
 
 
 class MaxImagesReached(StopIteration):
@@ -2752,6 +2752,10 @@ def recompute_db(**kwargs):
         read_sql_query("DROP TABLE collections")
     except sqlite3.OperationalError:
         pass
+    try:
+        read_sql_query("DROP VIEW valid_images")
+    except sqlite3.OperationalError:
+        pass
     refresh_db()
 
 
@@ -2890,10 +2894,10 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
 
 def _prepare_subplots_fields_occurrences():
     """Helper function for ``plot_fields_occurrences``"""
-    gs_im = GridSpec(1, 1, bottom=.65, top=.95)
-    gs_col = GridSpec(1, 1, bottom=.2, top=.5)
+    gs_im = GridSpec(1, 1, bottom=.7, top=.95)
+    gs_col = GridSpec(1, 1, bottom=.3, top=.5)
     ax_im = plt.subplot(gs_im[:])
-    ax_im.set_title('image fields')
+    ax_im.set_title('image fields', fontsize='xx-large')
     ax_col = plt.subplot(gs_col[:])
     ax_col.set_title('column fields', fontsize='xx-large')
     return ax_im, ax_col
@@ -2983,6 +2987,10 @@ def local_database_connection():
         "ISFILE", 1, os.path.isfile)
     local_database_connection.connection_.create_function(
         "ISDIR", 1, os.path.isdir)
+    local_database_connection.connection_.create_function(
+        "KNOWN_BAD_IM_ID", 1, _KNOWN_BAD_IMAGE_IDS.__contains__)
+    local_database_connection.connection_.create_function(
+        "KNOWN_BAD_COL_ID", 1, _KNOWN_BAD_COLLECTION_IDS.__contains__)
     return local_database_connection.connection_
 
 
@@ -3048,7 +3056,9 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
         cursor = cursor.execute(
             """CREATE VIEW valid_images AS SELECT * FROM images WHERE
             not_mni=0 AND is_valid=1 AND is_thresholded=0 AND
-            (map_type='F map' OR map_type='T map' OR map_type='Z map')""")
+            map_type IN ('F map', 'T map', 'Z map') AND
+            KNOWN_BAD_COL_ID(collection_id)=0 AND
+            KNOWN_BAD_IM_ID(id)=0""")
     except sqlite3.OperationalError:
         _logger.debug("Failed to create 'valid_images' view: {}".format(
             traceback.format_exc()))
@@ -3139,7 +3149,8 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
         - Are in MNI space.
         - Are unthresholded.
         - Are either Z, F or T maps.
-        - Are not in the ``_KNOWN_BAD_IMAGES`` set.
+        - Are not in ``_KNOWN_BAD_IMAGE_IDS``.
+        - Are not in a collection that is in ``_KNOWN_BAD_COLLECTION_IDS``.
 
     Examples
     --------
