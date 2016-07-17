@@ -154,7 +154,7 @@ def fetch_atlas_harvard_oxford(atlas_name, data_dir=None,
     directory.
 
     Parameters
-    ==========
+    ----------
     atlas_name: string
         Name of atlas to load. Can be:
         cort-maxprob-thr0-1mm,  cort-maxprob-thr0-2mm,
@@ -176,7 +176,7 @@ def fetch_atlas_harvard_oxford(atlas_name, data_dir=None,
         Not implemented for probabilistic atlas (*-prob-* atlases)
 
     Returns
-    =======
+    -------
     data: sklearn.datasets.base.Bunch
         dictionary-like object, keys are:
 
@@ -341,12 +341,6 @@ def fetch_atlas_msdl(data_dir=None, url=None, resume=True, verbose=1):
 
     return Bunch(maps=files[1], labels=labels, region_coords=region_coords,
                  networks=net_names, description=fdescr)
-
-
-@deprecated('This function has been replace by fetch_coords_power_2011 and '
-            'will be removed in nilearn 0.2.5')
-def fetch_atlas_power_2011():
-    return fetch_coords_power_2011()
 
 
 def fetch_coords_power_2011():
