@@ -78,7 +78,7 @@ _NEUROVAULT_COLLECTIONS_URL = urljoin(_NEUROVAULT_BASE_URL, 'collections/')
 _NEUROVAULT_IMAGES_URL = urljoin(_NEUROVAULT_BASE_URL, 'images/')
 _NEUROSYNTH_FETCH_WORDS_URL = 'http://neurosynth.org/api/v2/decode/'
 
-_COL_FILTERS_AVAILABLE_ON_SERVER = {'DOI', 'name', 'owner'}
+_COL_FILTERS_AVAILABLE_ON_SERVER = {'DOI', 'name', 'owner', 'id'}
 _IM_FILTERS_AVAILABLE_ON_SERVER = set()
 
 _DEFAULT_BATCH_SIZE = 100
@@ -471,6 +471,8 @@ def _append_filters_to_query(query, filters):
     """
     if not filters:
         return query
+    if 'id' in filters:
+        return urljoin(query, str(filters['id']))
     new_query = urljoin(
         query, '?{}'.format(urlencode(filters)))
     return new_query
@@ -566,6 +568,8 @@ def _get_batch(query, prefix_msg=''):
         raise
     finally:
         resp.close()
+    if 'id' in batch:
+        batch = {'count': 1, 'results': [batch]}
     for key in ['results', 'count']:
         if batch.get(key) is None:
             msg = ('could not find required key "{}" '
@@ -670,7 +674,8 @@ class IsNull(_SpecialValue):
 
     See Also
     --------
-    NotNull
+    NotNull, NotEqual, GreaterOrEqual, GreaterThan, LessOrEqual,
+    LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
 
     """
     def __eq__(self, other):
@@ -686,7 +691,8 @@ class NotNull(_SpecialValue):
 
     See Also
     --------
-    IsNull
+    IsNull, NotEqual, GreaterOrEqual, GreaterThan, LessOrEqual,
+    LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
 
     """
     def __eq__(self, other):
@@ -706,12 +712,122 @@ class NotEqual(_SpecialValue):
         The object from which a candidate should be different in order
         to pass through the filter.
 
+    See Also
+    --------
+    IsNull, NotNull, GreaterOrEqual, GreaterThan, LessOrEqual,
+    LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
+
     """
     def __init__(self, negated):
         self.negated_ = negated
 
     def __eq__(self, other):
         return not self.negated_ == other
+
+
+class _OrderComp(_SpecialValue):
+    """Base class for special values based on order comparisons."""
+    def __init__(self, bound):
+        self.bound_ = bound
+        self._cast = type(bound)
+
+    def __eq__(self, other):
+        try:
+            return self._eq_impl(self._cast(other))
+        except TypeError:
+            return False
+
+
+class GreaterOrEqual(_OrderComp):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with `GreaterOrEqual(obj)`. It
+    will allways be equal to, and only to, any value for which
+    ``obj <= value`` is ``True``.
+
+    Parameters
+    ----------
+    bound : object
+        The object to which a candidate should be superior or equal in
+        order to pass through the filter.
+
+    See Also
+    --------
+    IsNull, NotNull, NotEqual, GreaterThan, LessOrEqual, LessThan,
+    IsIn, NotIn, Contains, NotContains, Pattern.
+
+    """
+    def _eq_impl(self, other):
+        return self.bound_ <= other
+
+
+class GreaterThan(_OrderComp):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with `GreaterThan(obj)`. It
+    will allways be equal to, and only to, any value for which
+    ``obj < value`` is ``True``.
+
+    Parameters
+    ----------
+    bound : object
+        The object to which a candidate should be strictly superior in
+        order to pass through the filter.
+
+    See Also
+    --------
+    IsNull, NotNull, NotEqual, GreaterOrEqual, LessOrEqual, LessThan,
+    IsIn, NotIn, Contains, NotContains, Pattern.
+
+    """
+    def _eq_impl(self, other):
+        return self.bound_ < other
+
+
+class LessOrEqual(_OrderComp):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with `LessOrEqual(obj)`. It
+    will allways be equal to, and only to, any value for which
+    ``value <= obj`` is ``True``.
+
+    Parameters
+    ----------
+    bound : object
+        The object to which a candidate should be inferior or equal in
+        order to pass through the filter.
+
+    See Also
+    --------
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan, LessThan,
+    IsIn, NotIn, Contains, NotContains, Pattern.
+
+    """
+    def _eq_impl(self, other):
+        return other <= self.bound_
+
+
+class LessThan(_OrderComp):
+    """Special value used to filter terms.
+
+    An instance of this class is constructed with `LessThan(obj)`. It
+    will allways be equal to, and only to, any value for which
+    ``value < obj`` is ``True``.
+
+    Parameters
+    ----------
+    bound : object
+        The object to which a candidate should be strictly inferior in
+        order to pass through the filter.
+
+    See Also
+    --------
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, IsIn, NotIn, Contains, NotContains, Pattern.
+
+    """
+    def _eq_impl(self, other):
+        return other < self.bound_
 
 
 class IsIn(_SpecialValue):
@@ -730,7 +846,14 @@ class IsIn(_SpecialValue):
 
     See Also
     --------
-    NotIn
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, LessThan, NotIn, Contains, NotContains, Pattern.
+
+    Examples
+    --------
+    >>> countable = IsIn(range(11))
+    >>> 7 == countable
+    >>> countable == 12
 
     """
     def __init__(self, accepted):
@@ -756,7 +879,8 @@ class NotIn(_SpecialValue):
 
     See Also
     --------
-    IsIn
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, LessThan, IsIn, Contains, NotContains, Pattern.
 
     """
     def __init__(self, rejected):
@@ -782,8 +906,8 @@ class Contains(_SpecialValue):
 
     See Also
     --------
-    NotContains
-    Pattern
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, LessThan, IsIn, NotIn, NotContains, Pattern.
 
     Examples
     --------
@@ -820,8 +944,8 @@ class NotContains(_SpecialValue):
 
     See Also
     --------
-    Contains
-    Pattern
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, LessThan, IsIn, NotIn, Contains, Pattern.
 
     """
     def __init__(self, *args):
@@ -857,8 +981,9 @@ class Pattern(_SpecialValue):
 
     See Also
     --------
-    Contains
-    NotContains
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains.
+
     Documentation for standard library ``re`` module.
 
     Examples
@@ -901,13 +1026,14 @@ class ResultFilter(object):
     Parameters
     ----------
 
-    query_terms : dict, optional (default={})
-        a metadata dict will be blocked by the filter if it does not
-        respect ``metadata[key] == value`` for all ``key``, ``value``
-        pairs in `query_terms`.
+    query_terms : dict, optional (default=None)
+        A ``metadata`` dictionary will be blocked by the filter if it
+        does not respect ``metadata[key] == value`` for all
+        ``key``, ``value`` pairs in `query_terms`. If ``None``, the
+        empty dictionary is used.
 
     callable_filter : callable, optional (default=_empty_filter)
-        a ``metadata`` dictionary will be blocked by the filter if
+        A ``metadata`` dictionary will be blocked by the filter if
         `callable_filter` does not return ``True`` for ``metadata``.
 
     As an alternative to the `query_terms` dictionary parameter,
@@ -933,7 +1059,8 @@ class ResultFilter(object):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, IsIn, NotIn, Contains, NotContains, Pattern
+    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
 
     Examples
     --------
@@ -943,8 +1070,10 @@ class ResultFilter(object):
 
     """
 
-    def __init__(self, query_terms={},
+    def __init__(self, query_terms=None,
                  callable_filter=_empty_filter, **kwargs):
+        if query_terms is None:
+            query_terms = {}
         query_terms = dict(query_terms, **kwargs)
         self.query_terms_ = query_terms
         self.callable_filters_ = [callable_filter]
@@ -1647,6 +1776,9 @@ class DownloadManager(BaseDownloadManager):
             self.nv_data_dir_, collection_relative_path)
         if not os.path.isdir(collection_absolute_path):
             os.makedirs(collection_absolute_path)
+            with open(os.path.join(collection_absolute_path,
+                                   'collection_metadata.json', 'w')):
+                pass
         image_id = image_info['id']
         image_url = image_info['file']
         image_file_name = 'image_{}.nii.gz'.format(image_id)
@@ -1709,7 +1841,7 @@ class DownloadManager(BaseDownloadManager):
             self.temp_dir_ = _get_temp_dir(self.suggested_temp_dir_)
 
     def finish(self):
-        """Cleanup after downlaod session.
+        """Cleanup after downlaod sespsion.
 
         If ``self.start`` created a temporary directory for the
         download session, remove it.
@@ -1758,18 +1890,20 @@ class SQLiteDownloadManager(DownloadManager):
         retrieved. The default value keeps the image anyway and
         does not raise an error.
 
-    image_fields : Container, optional
-        (default=_IMAGE_BASIC_FIELDS_SQL.keys())
+    image_fields : Container, optional (default=None)
         Fields of the image metadata to include in sqlite database.
+        If ``None``, ``_IMAGE_BASIC_FIELDS_SQL.keys()`` is used.
 
-    collection_fields : Container, optional
-        (default=_COLLECTION_BASIC_FIELDS_SQL.keys())
+    collection_fields : Container, optional (default=None)
         Fields of the image metadata to include in sqlite database.
+        If ``None``, ``_COLLECTION_BASIC_FIELDS_SQL.keys()`` is used.
 
     """
-    def __init__(self, image_fields=_IMAGE_BASIC_FIELDS_SQL.keys(),
-                 collection_fields=_COLLECTION_BASIC_FIELDS_SQL.keys(),
-                 **kwargs):
+    def __init__(self, image_fields=None, collection_fields=None, **kwargs):
+        if image_fields is None:
+            image_fields = _IMAGE_BASIC_FIELDS_SQL.keys()
+        if collection_fields is None:
+            collection_fields = _COLLECTION_BASIC_FIELDS_SQL.keys()
         super(SQLiteDownloadManager, self).__init__(**kwargs)
         self.connection_ = None
         self.cursor_ = None
@@ -1974,29 +2108,39 @@ class _ServerDataScroller(object):
 
     Parameters
     ----------
-    collection_terms : dict, optional (default={})
+    collection_terms : dict, optional (default=None)
         Key, value pairs used to filter collection
         metadata. Collections for which
         ``collection_metadata[key] == value`` is not ``True``
         for every key, value pair will be ignored.
+        If ``None``, the empty dictionary is used.
 
     collection_filter : Callable, optional (default=_empty_filter)
         Collections for which
         `collection_filter(collection_metadata)` is ``False``
         will be ignored.
 
-    image_terms : dict, optional (default={})
+    image_terms : dict, optional (default=None)
         Key, value pairs used to filter image metadata. Images for
         which ``image_metadata[key] == value`` is not ``True`` for
         every key, value pair will be ignored.
+        If ``None``, the empty dictionary is used.
 
-    image_local_filter : Callable, optional (default=_empty_filter)
+    image_filter : Callable, optional (default=_empty_filter)
         Images for which `image_filter(image_metadata)` is
         ``False`` will be ignored.
 
+    ignored_collection_ids : Container, optional (default=None)
+        Collections we already have and should not download.
+        If ``None``, the empty set is used.
+
+    ignored_image_ids : Container, optional (default=None)
+        Images we already have and should not download.
+        If ``None``, the empty set is used.
+
     download_manager : BaseDownloadManager, optional (default=None)
         The download manager used to handle data from neurovault.org.
-        If None, one is constructed.
+        If ``None``, one is constructed.
 
     max_images : int, optional (default=None)
         Maximum number of images to download; only used if
@@ -2018,11 +2162,20 @@ class _ServerDataScroller(object):
         ``_DEFAULT_BATCH_SIZE`` will be used.
 
     """
-    def __init__(self, collection_terms={}, collection_filter=_empty_filter,
-                 image_terms={}, image_filter=_empty_filter,
-                 collection_ids=set(), image_ids=set(), download_manager=None,
-                 max_images=None, max_consecutive_fails=10,
-                 max_fails_in_collection=5, batch_size=None):
+    def __init__(self, collection_terms=None, collection_filter=_empty_filter,
+                 image_terms=None, image_filter=_empty_filter,
+                 ignored_collection_ids=None, ignored_image_ids=None,
+                 download_manager=None, max_images=None,
+                 max_consecutive_fails=10, max_fails_in_collection=5,
+                 batch_size=None):
+        if collection_terms is None:
+            collection_terms = {}
+        if image_terms is None:
+            image_terms = {}
+        if ignored_collection_ids is None:
+            ignored_collection_ids = set()
+        if ignored_image_ids is None:
+            ignored_image_ids = set()
         self.max_consecutive_fails_ = max_consecutive_fails
         self.max_fails_in_collection_ = max_fails_in_collection
         self.consecutive_fails_ = 0
@@ -2033,20 +2186,20 @@ class _ServerDataScroller(object):
              collection_terms, collection_filter,
              _COL_FILTERS_AVAILABLE_ON_SERVER)
         self.collection_filter_ = ResultFilter(
-            id=NotIn(collection_ids)).AND(self.collection_filter_)
+            id=NotIn(ignored_collection_ids)).AND(self.collection_filter_)
 
         (self.image_terms_,
          self.image_filter_) = _move_unknown_terms_to_local_filter(
              image_terms, image_filter,
              _IM_FILTERS_AVAILABLE_ON_SERVER)
         self.image_filter_ = ResultFilter(
-            id=NotIn(image_ids)).AND(self.image_filter_)
+            id=NotIn(ignored_image_ids)).AND(self.image_filter_)
 
         if download_manager is None:
             download_manager = BaseDownloadManager(
                 neurovault_data_dir=neurovault_directory(),
                 max_images=max_images)
-        download_manager.already_downloaded_ = len(image_ids)
+        download_manager.already_downloaded_ = len(ignored_image_ids)
         self.download_manager_ = download_manager
 
     def _failed_download(self):
@@ -2217,8 +2370,8 @@ def _json_add_im_files_paths(file_name, force=True):
 
 
 def _scroll_local_data(neurovault_dir,
-                       collection_terms={}, collection_filter=_empty_filter,
-                       image_terms={}, image_filter=_empty_filter,
+                       collection_terms=None, collection_filter=_empty_filter,
+                       image_terms=None, image_filter=_empty_filter,
                        max_images=None):
     """Iterate over local Neurovault data matching a query.
 
@@ -2227,21 +2380,23 @@ def _scroll_local_data(neurovault_dir,
     neurovault_dir : str
         Path to Neurovault data directory.
 
-    collection_terms : dict, optional (default={})
+    collection_terms : dict, optional (default=None)
         Key, value pairs used to filter collection
         metadata. Collections for which
         ``collection_metadata['key'] == value`` is not ``True``
         for every key, value pair will be ignored.
+        If ``None``, the empty dictionary is used.
 
     collection_filter : Callable, optional (default=_empty_filter)
         Collections for which
         `collection_local_filter(collection_metadata)` is ``False``
         will be ignored.
 
-    image_terms : dict, optional (default={})
+    image_terms : dict, optional (default=None)
         Key, value pairs used to filter image metadata. Images for
         which ``image_metadata['key'] == value`` is not ``True`` for
         every key, value pair will be ignored.
+        If ``None``, the empty dictionary is used.
 
     image_filter : Callable, optional (default=_empty_filter)
         Images for which `image_local_filter(image_metadata)` is
@@ -2259,6 +2414,10 @@ def _scroll_local_data(neurovault_dir,
         Metadata for the image's collection.
 
     """
+    if collection_terms is None:
+        collection_terms = {}
+    if image_terms is None:
+        image_terms = {}
     collection_filter = ResultFilter(
         **collection_terms).AND(collection_filter)
     image_filter = ResultFilter(**image_terms).AND(image_filter)
@@ -2320,9 +2479,9 @@ class _EmptyContext(object):
 
 
 def _join_local_and_remote(neurovault_dir, mode='download_new',
-                           collection_terms={},
+                           collection_terms=None,
                            collection_filter=_empty_filter,
-                           image_terms={}, image_filter=_empty_filter,
+                           image_terms=None, image_filter=_empty_filter,
                            download_manager=None, max_images=None):
     """Iterate over results from disk, then those found on neurovault.org
 
@@ -2337,21 +2496,23 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
         - 'overwrite' means ignore files on disk and overwrite them.
         - 'offline' means load only data from disk; don't query server.
 
-    collection_terms : dict, optional (default={})
+    collection_terms : dict, optional (default=None)
         Key, value pairs used to filter collection
         metadata. Collections for which
         ``collection_metadata['key'] == value`` is not ``True``
         for every key, value pair will be ignored.
+        If ``None``, the empty dictionary is used.
 
     collection_filter : Callable, optional (default=_empty_filter)
         Collections for which
         `collection_local_filter(collection_metadata)` is ``False``
         will be ignored.
 
-    image_terms : dict, optional (default={})
+    image_terms : dict, optional (default=None)
         Key, value pairs used to filter image metadata. Images for
         which ``image_metadata['key'] == value`` is not ``True`` for
         every key, value pair will be ignored.
+        If ``None``, the empty dictionary is used.
 
     image_filter : Callable, optional (default=_empty_filter)
         Images for which `image_local_filter(image_metadata)` is
@@ -2383,6 +2544,10 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
     raised during download.
 
     """
+    if collection_terms is None:
+        collection_terms = {}
+    if image_terms is None:
+        image_terms = {}
     mode = mode.lower()
     if mode not in ['overwrite', 'download_new', 'offline']:
         raise ValueError(
@@ -2470,22 +2635,25 @@ def _move_col_id(im_terms, col_terms):
     ``fetch_neurovault`` efficient.
 
     """
-    if 'collection_id' in im_terms:
-        if 'id' not in col_terms:
-            col_terms['id'] = im_terms.pop('collection_id')
-        elif col_terms['id'] == im_terms['collection_id']:
-            im_terms.pop('collection_id')
-        else:
-            warnings.warn('You specified contradictory collection ids, '
-                          'one in the image filters and one in the '
-                          'collection filters')
+    if 'collection_id' not in im_terms:
+        return im_terms, col_terms
+    im_terms = copy(im_terms)
+    col_terms = copy(col_terms)
+    if 'id' not in col_terms:
+        col_terms['id'] = im_terms.pop('collection_id')
+    elif col_terms['id'] == im_terms['collection_id']:
+        col_terms['id'] = im_terms.pop('collection_id')
+    else:
+        warnings.warn('You specified contradictory collection ids, '
+                      'one in the image filters and one in the '
+                      'collection filters')
     return im_terms, col_terms
 
 
 def fetch_neurovault(max_images=100,
-                     collection_terms=basic_collection_terms(),
+                     collection_terms=None,
                      collection_filter=_empty_filter,
-                     image_terms=basic_image_terms(),
+                     image_terms=None,
                      image_filter=_empty_filter,
                      mode='download_new',
                      neurovault_data_dir=None,
@@ -2521,7 +2689,7 @@ def fetch_neurovault(max_images=100,
 
     mode : {'download_new', 'overwrite', 'offline'}
         - 'download_new' (the default) means download only files that
-          are not already on disk.
+          are not already on disk (regardless of modify date).
         - 'overwrite' means ignore files on disk and overwrite them.
         - 'offline' means load only data from disk; don't query server.
 
@@ -2579,6 +2747,15 @@ def fetch_neurovault(max_images=100,
     DownloadManager, SQLiteDownloadManager
         Possible handlers for the downloaded data.
 
+    read_sql_query, local_database_connection:
+        Alternative ways to access the data once it has been
+        downloaded.
+
+    ResultFilter, IsNull, NotNull, NotEqual, GreaterOrEqual,
+    GreaterThan, LessOrEqual, LessThan, IsIn, NotIn, Contains,
+    NotContains, Pattern:
+        Helpers to make filtering easier and less verbose.
+
     Some authors have included many fields in the metadata they
     provide; in order to make it easier to figure out which fields are
     used by most authors and which are interesting to you, these
@@ -2606,6 +2783,12 @@ def fetch_neurovault(max_images=100,
 
     Images and collections from disk are fetched before remote data.
 
+    In `download_new` mode, if a file exists on disk, it is not
+    downloaded again, even if the version on the server is newer. Use
+    `overwrite` mode to force a new download (you can filter on the
+    field ``modify_date`` to re-download the files that are newer on
+    the server - see Examples section).
+
     Tries to yield `max_images` images; stops early if we have fetched
     all the images matching the filters or if an uncaught exception is
     raised during download
@@ -2625,11 +2808,29 @@ def fetch_neurovault(max_images=100,
        of human functional neuroimaging data." Nature methods 8, no. 8
        (2011): 665-670.
 
+    Examples
+    --------
+    To download **all** the collections and images from Neurovault:
+
+    >>> fetch_neurovault(max_images=None, collection_terms={}, image_terms={})
+
+    To download all the images (matching the default filters) that are
+    not on disk or are more recent on the server:
+
+    >>> newest = read_sql_query(
+        "SELECT MAX(modify_date) as max_date FROM images")['max_date'][0]
+    >>> fetch_neurovault(
+        max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
+
     """
     if max_images == 100:
         _logger.info(
             'fetch_neurovault: using default value of 100 for max_images. '
             'Set max_images to another value or None if you want more images.')
+    if collection_terms is None:
+        collection_terms = basic_collection_terms()
+    if image_terms is None:
+        image_terms = basic_image_terms()
     image_terms = dict(image_terms, **kwargs)
     image_terms, collection_terms = _move_col_id(image_terms, collection_terms)
 
