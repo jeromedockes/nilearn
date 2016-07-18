@@ -219,6 +219,15 @@ def test_NotEqual():
     assert_true('a' != not_equal)
 
 
+def test_OrderComp():
+    geq = nv.GreaterOrEqual('2016-07-12T11:29:12.263046Z')
+    assert_true('2016-08-12T11:29:12.263046Z') == geq
+    assert_true('2016-06-12T11:29:12.263046Z') != geq
+    lt = nv.LessThan(7)
+    assert_false(7 == lt)
+    assert_false(5 != lt)
+
+
 def test_IsIn():
     is_in = nv.IsIn({0, 1})
     assert_true(is_in == 0)
@@ -229,6 +238,9 @@ def test_IsIn():
     assert_true(is_in != 2)
     assert_false(0 != is_in)
     assert_true(2 != is_in)
+    countable = nv.IsIn(range(11))
+    assert_true(7 == countable)
+    assert_false(countable == 12)
 
 
 def test_NotIn():
@@ -253,6 +265,9 @@ def test_Contains():
     assert_false(['b', 1, 'a', 0] != contains)
     assert_false(contains == ['b', 1, 0])
     assert_false(['b', 1, 'a'] == contains)
+    contains = nv.Contains('house', 'face')
+    assert_true('face vs house' == contains)
+    assert_false('smiling face vs frowning face' == contains)
 
 
 def test_NotContains():
@@ -352,6 +367,11 @@ def test_ResultFilter_combinations():
     assert_true(filter_2({'a': 'a'}))
     assert_false(filter_2({'a': ''}))
     assert_false(filter_2({'a': 'a', 'b': 0}))
+
+    filt = nv.ResultFilter(
+        a=0).AND(nv.ResultFilter(b=1).OR(nv.ResultFilter(b=2)))
+    assert_true(filt({'a': 0, 'b': 1}))
+    assert_false(filt({'a': 0, 'b': 0}))
 
 
 # @with_setup(tst.setup_tmpdata, tst.teardown_tmpdata)
