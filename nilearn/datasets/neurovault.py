@@ -99,9 +99,6 @@ except NameError:
 def _to_supported_type(obj):
     if obj is None:
         return None
-    if (isinstance(obj, _basestring) and re.match(
-            r'(none|null)', obj, re.IGNORECASE)):
-        return None
     if type(obj) in _PY_TO_SQL_TYPE:
         return obj
     for t in _PY_TO_SQL_TYPE:
@@ -1478,7 +1475,7 @@ def _remove_none_strings(metadata):
     """
     for key, value in metadata.items():
         if (isinstance(value, _basestring) and
-            re.match(r'(none|null)', value, re.IGNORECASE)):
+            re.match(r'(^$|^n/?a$|none|null)', value, re.IGNORECASE)):
             metadata[key] = None
     return metadata
 

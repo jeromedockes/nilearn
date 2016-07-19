@@ -123,10 +123,27 @@ def test_translate_types_to_sql():
 def test_to_supported_type():
     assert_equal(nv._to_supported_type(0), 0)
     assert_equal(nv._to_supported_type(None), None)
-    assert_equal(nv._to_supported_type('None / Other'), None)
     assert_equal(nv._to_supported_type('abc'), 'abc')
     assert_equal(nv._to_supported_type({'a': 0}), json.dumps({'a': 0}))
     assert_equal(nv._to_supported_type(u'\u2019'), u'\u2019')
+
+
+def test_remove_none_strings():
+    info = {'a': 'None / Other',
+            'b': '',
+            'c': 'N/A',
+            'd': None,
+            'e': 0,
+            'f': 'a',
+            'g': 'Name'}
+    assert_equal(nv._remove_none_strings(info),
+                 {'a': None,
+                  'b': None,
+                  'c': None,
+                  'd': None,
+                  'e': 0,
+                  'f': 'a',
+                  'g': 'Name'})
 
 
 def test_append_filters_to_query():
