@@ -135,6 +135,10 @@ def test_append_filters_to_query():
         OrderedDict([('owner', 'me'), ('DOI', 17)]))
     assert_equal(
         query, 'http://neurovault.org/api/collections/?owner=me&DOI=17')
+    query = nv._append_filters_to_query(
+        nv._NEUROVAULT_COLLECTIONS_URL,
+        {'id': 40})
+    assert_equal(query, 'http://neurovault.org/api/collections/40')
 
 
 def ignore_connection_errors(func):
@@ -587,7 +591,7 @@ class TestDownloadManager(nv.BaseDownloadManager):
         raise nv.URLError('bad download')
 
 
-def test_fetch_neurovault():
+def test_fetch_neurovault_filtered():
     with _TemporaryDirectory():
         data = nv.fetch_neurovault(max_images=1, fetch_neurosynth_words=True,
                                    fetch_reduced_rep=True)
@@ -614,6 +618,18 @@ def test_fetch_neurovault():
             data = nv.fetch_neurovault(download_manager=TestDownloadManager(
                 max_images=2, neurovault_data_dir=nv.neurovault_directory()))
             assert_equal(len(data['images']), 1)
+
+
+def test_fetch_neurovault_explicit():
+    # test using explicit id list instead of filters,
+    # and downloading an image which has no collection dir
+    # or metadata yet.
+    with _TemporaryDirectory():
+        data = nv.fetch_neurovault(image_ids=[111])
+        if data is not None:
+            assert_equal(data['images_meta'][0]['id'], 111)
+            assert_equal(os.path.dirname(data['images'][0]),
+                         data['collections_meta'][0]['absolute_path'])
 
 
 def test_move_col_id():

@@ -468,6 +468,13 @@ def _append_filters_to_query(query, filters):
     --------
     urllib.parse.urlencode
 
+    Notes
+    -----
+    If one of the `filters` keys is 'id', we get the url that points
+    directly to that id,
+    e.g. 'http://neurovault.org/api/collections/40', and the other
+    filters are ignored.
+
     """
     if not filters:
         return query
@@ -541,7 +548,8 @@ def _get_batch(query, prefix_msg=''):
 
     ValueError
         If the response could not be decoded, or did not contain
-        'results' or 'count'.
+        either 'id' (single result), or 'results' and 'count' (actual
+        batch).
 
     Notes
     -----
@@ -642,6 +650,37 @@ def _scroll_server_results(url, local_filter=_empty_filter,
         for result in batch['results']:
             if local_filter(result):
                 yield result
+
+
+def _yield_from_url_list(url_list):
+    """Get metadata coming from an explicit list of URLs.
+
+    This is different from ``_scroll_server_results``, which is used
+    to get all the metadata that matches certain filters.
+
+    Parameters
+    ----------
+    url_list : Container of str
+        URLs from which to get data
+
+    Yields
+    ------
+    content : dict
+        The metadata from one URL.
+
+    Raises
+    ------
+    urllib.error.URLError
+        If there was a problem opening an URL.
+
+    ValueError
+        If a response could not be decoded, or did not contain either
+        'id' (single result), or 'results' and 'count' (batch).
+
+    """
+    for url in url_list:
+        content = _get_batch(url)['results'][0]
+        yield content
 
 
 class _SpecialValue(object):
@@ -1754,7 +1793,9 @@ class DownloadManager(BaseDownloadManager):
 
         Wether reduced representation and Neurosynth words are
         downloaded depends on ``self.fetch_reduced_rep_`` and
-        ``self.fetch_ns_``.
+        ``self.fetch_ns_``. If there is no matching collection
+        directory and metadata on disk, the collection directory is
+        created and the metadata is downloaded.
 
         Parameters
         ----------
@@ -1775,10 +1816,9 @@ class DownloadManager(BaseDownloadManager):
         collection_absolute_path = os.path.join(
             self.nv_data_dir_, collection_relative_path)
         if not os.path.isdir(collection_absolute_path):
-            os.makedirs(collection_absolute_path)
-            with open(os.path.join(collection_absolute_path,
-                                   'collection_metadata.json', 'w')):
-                pass
+            col_batch = _get_batch(urljoin(
+                _NEUROVAULT_COLLECTIONS_URL, str(collection_id)))
+            self.collection(col_batch['results'][0])
         image_id = image_info['id']
         image_url = image_info['file']
         image_file_name = 'image_{}.nii.gz'.format(image_id)
@@ -2103,6 +2143,44 @@ class SQLiteDownloadManager(DownloadManager):
         self.cursor_ = None
 
 
+def _json_from_file(file_name):
+    """Load a json file encoded with UTF-8."""
+    with open(file_name, 'rb') as dumped:
+        loaded = json.loads(dumped.read().decode('utf-8'))
+    return loaded
+
+
+def _json_add_collection_dir(file_name, force=True):
+    """Load a json file and add is parent dir to resulting dict."""
+    loaded = _json_from_file(file_name)
+    set_func = loaded.__setitem__ if force else loaded.setdefault
+    dir_path = os.path.dirname(file_name)
+    set_func('absolute_path', dir_path)
+    set_func('relative_path', os.path.basename(dir_path))
+    return loaded
+
+
+def _json_add_im_files_paths(file_name, force=True):
+    """Load a json file and add image, reduced rep and words paths."""
+    loaded = _json_from_file(file_name)
+    set_func = loaded.__setitem__ if force else loaded.setdefault
+    dir_path = os.path.dirname(file_name)
+    dir_relative_path = os.path.basename(dir_path)
+    image_file_name = 'image_{}.nii.gz'.format(loaded['id'])
+    reduced_file_name = 'image_{}_reduced_rep.npy'.format(loaded['id'])
+    words_file_name = 'neurosynth_words_for_image_{}.json'.format(loaded['id'])
+    set_func('relative_path', os.path.join(dir_relative_path, image_file_name))
+    if os.path.isfile(os.path.join(dir_path, reduced_file_name)):
+        set_func('reduced_representation_relative_path',
+                 os.path.join(dir_relative_path, reduced_file_name))
+    if os.path.isfile(os.path.join(dir_path, words_file_name)):
+        set_func('neurosynth_words_relative_path',
+                 os.path.join(dir_relative_path, words_file_name))
+    loaded = _add_absolute_paths(
+        os.path.dirname(dir_path), loaded, force=force)
+    return loaded
+
+
 class _ServerDataScroller(object):
     """Iterate over neurovault.org results for a query.
 
@@ -2138,18 +2216,33 @@ class _ServerDataScroller(object):
         Images we already have and should not download.
         If ``None``, the empty set is used.
 
+    wanted_collection_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just download
+        all collections from this list (and if specified all the
+        images from `wanted_image_ids`)
+
+    wanted_image_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just download
+        all images from this list (and if specified all the
+        collections from `wanted_collection_ids`)
+
     download_manager : BaseDownloadManager, optional (default=None)
         The download manager used to handle data from neurovault.org.
         If ``None``, one is constructed.
 
     max_images : int, optional (default=None)
         Maximum number of images to download; only used if
-        `download_manager` is None.
+        `download_manager` is None. Ignored if an explicit list of
+        collections (resp. images) has been specified with
+        `wanted_collection_ids` (resp. `wanted_image_ids`).
 
     max_consecutive_fails : int, optional (default=10)
         If more than `max_consecutive_fails` images or collections in
         a row fail to be downloaded, we consider there is a problem
-        and stop the download session.
+        and stop the download session. Does not aplly to explicitely
+        specified images: the download will stop with an error message
+        if an image explicitly required by the caller fails to be
+        downloaded.
 
     max_fails_in_collection : int, optional (default=5)
         If more than `max_fails_in_collection` images fail to be
@@ -2164,7 +2257,8 @@ class _ServerDataScroller(object):
     """
     def __init__(self, collection_terms=None, collection_filter=_empty_filter,
                  image_terms=None, image_filter=_empty_filter,
-                 ignored_collection_ids=None, ignored_image_ids=None,
+                 ignored_collection_ids=set(), ignored_image_ids=set(),
+                 wanted_collection_ids=None, wanted_image_ids=None,
                  download_manager=None, max_images=None,
                  max_consecutive_fails=10, max_fails_in_collection=5,
                  batch_size=None):
@@ -2172,28 +2266,13 @@ class _ServerDataScroller(object):
             collection_terms = {}
         if image_terms is None:
             image_terms = {}
-        if ignored_collection_ids is None:
-            ignored_collection_ids = set()
-        if ignored_image_ids is None:
-            ignored_image_ids = set()
+        ignored_collection_ids = set(ignored_collection_ids)
+        ignored_image_ids = set(ignored_image_ids)
         self.max_consecutive_fails_ = max_consecutive_fails
         self.max_fails_in_collection_ = max_fails_in_collection
         self.consecutive_fails_ = 0
         self.fails_in_collection_ = 0
         self.batch_size_ = batch_size
-        (self.collection_terms_,
-         self.collection_filter_) = _move_unknown_terms_to_local_filter(
-             collection_terms, collection_filter,
-             _COL_FILTERS_AVAILABLE_ON_SERVER)
-        self.collection_filter_ = ResultFilter(
-            id=NotIn(ignored_collection_ids)).AND(self.collection_filter_)
-
-        (self.image_terms_,
-         self.image_filter_) = _move_unknown_terms_to_local_filter(
-             image_terms, image_filter,
-             _IM_FILTERS_AVAILABLE_ON_SERVER)
-        self.image_filter_ = ResultFilter(
-            id=NotIn(ignored_image_ids)).AND(self.image_filter_)
 
         if download_manager is None:
             download_manager = BaseDownloadManager(
@@ -2201,6 +2280,33 @@ class _ServerDataScroller(object):
                 max_images=max_images)
         download_manager.already_downloaded_ = len(ignored_image_ids)
         self.download_manager_ = download_manager
+
+        if wanted_collection_ids is not None or wanted_image_ids is not None:
+            self.collection_list_ = wanted_collection_ids
+            self.image_list_ = wanted_image_ids
+            self.ignored_collection_ids_ = ignored_collection_ids
+            self.ignored_image_ids_ = ignored_image_ids
+            self.download_manager_.max_images_ = None
+            self.scroll_mode_ = 'explicit'
+            self.image_terms_ = {}
+            self.image_filter_ = _empty_filter
+            return
+
+        (self.collection_terms_,
+         self.collection_filter_) = _move_unknown_terms_to_local_filter(
+             collection_terms, collection_filter,
+             _COL_FILTERS_AVAILABLE_ON_SERVER)
+        self.collection_filter_ = ResultFilter(
+            {'id': NotIn(ignored_collection_ids)}).AND(self.collection_filter_)
+
+        (self.image_terms_,
+         self.image_filter_) = _move_unknown_terms_to_local_filter(
+             image_terms, image_filter,
+             _IM_FILTERS_AVAILABLE_ON_SERVER)
+        self.image_filter_ = ResultFilter(
+            {'id': NotIn(ignored_image_ids)}).AND(self.image_filter_)
+
+        self.scroll_mode_ = 'filtered'
 
     def _failed_download(self):
         self.consecutive_fails_ += 1
@@ -2275,6 +2381,100 @@ class _ServerDataScroller(object):
                 (n_im_in_collection if n_im_in_collection else 'no'),
                 ('s' if n_im_in_collection > 1 else ''), collection['id']))
 
+    def _scroll_explicit(self):
+        """Iterate over explicitely listed collections and images.
+
+        Yields
+        ------
+        image : dict
+            Metadata for an image.
+
+        collection : dict
+            Metadata for the image's collection.
+
+        Raises
+        ------
+
+        RuntimeError
+            If more than ``self.max_consecutive_fails_`` images (from
+            the specified collections) have failed in a row.
+
+        URLError, ValueError, errors raised by the download manager
+            If an image specified in the `wanted_image_ids` cannot be
+            downloaded.
+
+        """
+        collection_urls = [
+            urljoin(_NEUROVAULT_COLLECTIONS_URL, str(col_id)) for
+            col_id in self.collection_list_ or [] if
+            col_id not in self.ignored_collection_ids_]
+        for collection in _yield_from_url_list(collection_urls):
+            for image in self._scroll_collection(collection):
+                self.ignored_image_ids_.add(image['id'])
+                yield image, collection
+
+        image_urls = [urljoin(_NEUROVAULT_IMAGES_URL, str(im_id)) for
+                      im_id in self.image_list_ or [] if
+                      im_id not in self.ignored_image_ids_]
+        for image in _yield_from_url_list(image_urls):
+            self.download_manager_.image(image)
+            collection = _json_add_collection_dir(os.path.join(
+                os.path.dirname(image['absolute_path']),
+                'collection_metadata.json'))
+            yield image, collection
+
+    def _scroll_filtered(self):
+        """Iterate over collections matching the specified filters.
+
+        Yields
+        ------
+        image : dict
+            Metadata for an image.
+
+        collection : dict
+            Metadata for the image's collection.
+
+        Raises
+        ------
+        MaxImagesReached
+            If enough images have been downloaded.
+
+        RuntimeError
+            If more than ``self.max_consecutive_fails_`` images have
+            failed in a row.
+
+        """
+        collections = _scroll_server_results(
+            _NEUROVAULT_COLLECTIONS_URL, query_terms=self.collection_terms_,
+            local_filter=self.collection_filter_,
+            prefix_msg='scroll collections: ', batch_size=self.batch_size_)
+
+        while True:
+            collection = None
+            try:
+                collection = next(collections)
+                collection = self.download_manager_.collection(collection)
+                good_collection = True
+            except MaxImagesReached:
+                raise
+            except StopIteration:
+                break
+            except Exception:
+                _logger.exception('scroll: bad collection: {}'.format(
+                    collection))
+                self._failed_download()
+                good_collection = False
+
+            collection_content = self._scroll_collection(collection)
+            while good_collection:
+                try:
+                    image = next(collection_content)
+                except MaxImagesReached:
+                    raise
+                except StopIteration:
+                    break
+                yield image, collection
+
     def scroll(self):
         """Iterate over neurovault.org content.
 
@@ -2295,83 +2495,23 @@ class _ServerDataScroller(object):
             If more than ``self.max_consecutive_fails_`` images have
             failed in a row.
 
+        URLError, ValueError, errors raised by the download manager
+            If an image specified in the `wanted_image_ids` cannot be
+            downloaded.
+
         """
         self.consecutive_fails_ = 0
-
-        collections = _scroll_server_results(
-            _NEUROVAULT_COLLECTIONS_URL, query_terms=self.collection_terms_,
-            local_filter=self.collection_filter_,
-            prefix_msg='scroll collections: ', batch_size=self.batch_size_)
-
+        modes = {'filtered': self._scroll_filtered,
+                 'explicit': self._scroll_explicit}
         with self.download_manager_:
-            while True:
-                collection = None
-                try:
-                    collection = next(collections)
-                    collection = self.download_manager_.collection(collection)
-                    good_collection = True
-                except MaxImagesReached:
-                    raise
-                except StopIteration:
-                    break
-                except Exception:
-                    _logger.exception('scroll: bad collection: {}'.format(
-                        collection))
-                    self._failed_download()
-                    good_collection = False
-
-                collection_content = self._scroll_collection(collection)
-                while good_collection:
-                    try:
-                        image = next(collection_content)
-                    except MaxImagesReached:
-                        raise
-                    except StopIteration:
-                        break
-                    yield image, collection
-
-
-def _json_from_file(file_name):
-    """Load a json file encoded with UTF-8."""
-    with open(file_name, 'rb') as dumped:
-        loaded = json.loads(dumped.read().decode('utf-8'))
-    return loaded
-
-
-def _json_add_collection_dir(file_name, force=True):
-    """Load a json file and add is parent dir to resulting dict."""
-    loaded = _json_from_file(file_name)
-    set_func = loaded.__setitem__ if force else loaded.setdefault
-    dir_path = os.path.dirname(file_name)
-    set_func('absolute_path', dir_path)
-    set_func('relative_path', os.path.basename(dir_path))
-    return loaded
-
-
-def _json_add_im_files_paths(file_name, force=True):
-    """Load a json file and add image, reduced rep and words paths."""
-    loaded = _json_from_file(file_name)
-    set_func = loaded.__setitem__ if force else loaded.setdefault
-    dir_path = os.path.dirname(file_name)
-    dir_relative_path = os.path.basename(dir_path)
-    image_file_name = 'image_{}.nii.gz'.format(loaded['id'])
-    reduced_file_name = 'image_{}_reduced_rep.npy'.format(loaded['id'])
-    words_file_name = 'neurosynth_words_for_image_{}.json'.format(loaded['id'])
-    set_func('relative_path', os.path.join(dir_relative_path, image_file_name))
-    if os.path.isfile(os.path.join(dir_path, reduced_file_name)):
-        set_func('reduced_representation_relative_path',
-                 os.path.join(dir_relative_path, reduced_file_name))
-    if os.path.isfile(os.path.join(dir_path, words_file_name)):
-        set_func('neurosynth_words_relative_path',
-                 os.path.join(dir_relative_path, words_file_name))
-    loaded = _add_absolute_paths(
-        os.path.dirname(dir_path), loaded, force=force)
-    return loaded
+            for image, collection in modes[self.scroll_mode_]():
+                yield image, collection
 
 
 def _scroll_local_data(neurovault_dir,
                        collection_terms=None, collection_filter=_empty_filter,
                        image_terms=None, image_filter=_empty_filter,
+                       wanted_collection_ids=None, wanted_image_ids=None,
                        max_images=None):
     """Iterate over local Neurovault data matching a query.
 
@@ -2402,8 +2542,19 @@ def _scroll_local_data(neurovault_dir,
         Images for which `image_local_filter(image_metadata)` is
         ``False`` will be ignored.
 
+    wanted_collection_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just load
+        all collections from this list (and if specified all the
+        images from `wanted_image_ids`)
+
+    wanted_image_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just load
+        all images from this list (and if specified all the
+        collections from `wanted_collection_ids`)
+
     max_images : int, optional (default=None)
-        Maximum number of images' metadata to load
+        Maximum number of images' metadata to load. Ignored if loading
+        from explicit collection or image lists.
 
     Yields
     ------
@@ -2418,9 +2569,15 @@ def _scroll_local_data(neurovault_dir,
         collection_terms = {}
     if image_terms is None:
         image_terms = {}
-    collection_filter = ResultFilter(
-        **collection_terms).AND(collection_filter)
-    image_filter = ResultFilter(**image_terms).AND(image_filter)
+    if wanted_collection_ids is not None or wanted_image_ids is not None:
+        collection_filter = _empty_filter
+        image_filter = ResultFilter({'id': IsIn(wanted_image_ids)}).OR(
+            ResultFilter(collection_id=IsIn(wanted_collection_ids)))
+        max_images = None
+    else:
+        collection_filter = ResultFilter(
+            **collection_terms).AND(collection_filter)
+        image_filter = ResultFilter(**image_terms).AND(image_filter)
 
     if max_images is not None and max_images < 0:
         max_images = None
@@ -2482,6 +2639,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
                            collection_terms=None,
                            collection_filter=_empty_filter,
                            image_terms=None, image_filter=_empty_filter,
+                           wanted_collection_ids=None, wanted_image_ids=None,
                            download_manager=None, max_images=None):
     """Iterate over results from disk, then those found on neurovault.org
 
@@ -2518,14 +2676,26 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
         Images for which `image_local_filter(image_metadata)` is
         ``False`` will be ignored.
 
+    wanted_collection_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just download
+        all collections from this list (and if specified all the
+        images from `wanted_image_ids`)
+
+    wanted_image_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just download
+        all images from this list (and if specified all the
+        collections from `wanted_collection_ids`)
+
+
     download_manager : BaseDownloadManager, optional (default=None)
         The download manager used to handle data from neurovault.org.
         If None, one is constructed if required (i.e. we are not
         working offline).
 
     max_images : int, optional (default=None)
-        Maximum number of images to download; only used if
-        `download_manager` is None.
+            Maximum number of images to download; only used if
+        `download_manager` is None. Ignored if `wanted_collection_ids`
+        or `wanted_image_ids` is used.
 
     Yields
     ------
@@ -2560,7 +2730,8 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
         _logger.debug('reading local neurovault data')
         local_data = _scroll_local_data(
             neurovault_dir, collection_terms, collection_filter,
-            image_terms, image_filter, max_images)
+            image_terms, image_filter, wanted_collection_ids,
+            wanted_image_ids, max_images)
         context = (download_manager if download_manager is not None
                    else _EmptyContext())
         update = (download_manager.update if download_manager is not None
@@ -2584,6 +2755,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
     server_data = _ServerDataScroller(collection_terms, collection_filter,
                                       image_terms, image_filter,
                                       collection_ids, image_ids,
+                                      wanted_collection_ids, wanted_image_ids,
                                       download_manager, max_images).scroll()
     while True:
         try:
@@ -2651,41 +2823,76 @@ def _move_col_id(im_terms, col_terms):
 
 
 def fetch_neurovault(max_images=100,
-                     collection_terms=None,
+                     collection_terms=basic_collection_terms(),
                      collection_filter=_empty_filter,
-                     image_terms=None,
+                     image_terms=basic_image_terms(),
                      image_filter=_empty_filter,
-                     mode='download_new',
-                     neurovault_data_dir=None,
-                     fetch_neurosynth_words=False,
-                     fetch_reduced_rep=False,
+                     collection_ids=None, image_ids=None,
+                     mode='download_new', neurovault_data_dir=None,
+                     fetch_neurosynth_words=False, fetch_reduced_rep=False,
                      download_manager=None, vectorize_words=True, **kwargs):
     """Download data from neurovault.org[1]_ and neurosynth.org[2]_.
+
+    Any downloaded data is saved on the local disk and subsequent
+    calls to this function will first look for the data locally before
+    querying the server for more if necessary.
+
+    There are two possible ways to select the data to be fetched:
+
+        - Using filters:
+            We explore the metadata for Neurovault collections and
+            images, keeping those that match a certain set of
+            criteria, until we have skimmed through the whole database
+            or until an (optional) maximum number of images to fetch
+            has been reached.
+
+        - Explicitely specifying a list of collection and/or image
+          ids:
+            This is a faster way to get the data from the server if we
+            already know which images or collections we want. This is
+            what happens if one or both of `collection_ids` and
+            `image_ids` parameters has a value different from
+            ``None``. In this case any specified filters are ignored
+            and we fetch collections and images from those lists
+            exactly.
 
     Parameters
     ----------
     max_images : int, optional (default=100)
-        Maximum number of images to fetch.
+        Maximum number of images to fetch. Ignored if `collection_ids`
+        or `image_ids` is used.
 
     collection_terms : dict, optional (default=basic_collection_terms())
         Key, value pairs used to filter collection
-        metadata. Collections for which
-        ``collection_metadata['key'] == value`` is not ``True``
-        for every key, value pair will be ignored.
+        metadata. Collections for which ``collection_metadata['key']
+        == value`` is not ``True`` for every key, value pair will be
+        discarded. Ignored if `collection_ids` or `image_ids` is used.
 
     collection_filter : Callable, optional (default=_empty_filter)
-        Collections for which
-        `collection_local_filter(collection_metadata)` is ``False``
-        will be ignored.
+        Collections for which `collection_filter(collection_metadata)`
+        is ``False`` will be discarded. Ignored if `collection_ids` or
+        `image_ids` is used.
 
     image_terms : dict, optional (default=basic_image_terms())
         Key, value pairs used to filter image metadata. Images for
         which ``image_metadata['key'] == value`` is not ``True`` for
-        every key, value pair will be ignored.
+        every key, value pair will be discarded. Ignored if
+        `collection_ids` or `image_ids` is used.
 
     image_filter : Callable, optional (default=_empty_filter)
-        Images for which `image_local_filter(image_metadata)` is
-        ``False`` will be ignored.
+        Images for which `image_filter(image_metadata)` is ``False``
+        will be discarded. Ignored if `collection_ids` or `image_ids`
+        is used.
+
+    collection_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just download
+        all collections from this list (and if specified all the
+        images from `image_ids`)
+
+    image_ids : Container, optional (default=None)
+        If not ``None``, ignore filters and terms and just download
+        all images from this list (and if specified all the
+        collections from `collection_ids`)
 
     mode : {'download_new', 'overwrite', 'offline'}
         - 'download_new' (the default) means download only files that
@@ -2693,13 +2900,10 @@ def fetch_neurovault(max_images=100,
         - 'overwrite' means ignore files on disk and overwrite them.
         - 'offline' means load only data from disk; don't query server.
 
-    neurovault_dir : str, optional (default=None)
+    neurovault_data_dir : str, optional (default=None)
         The directory we want to use for Neurovault data. Another
         directory may be used if the one that was specified is not
         valid.
-
-    neurovault_data_dir : str
-        Path to Neurovault data directory.
 
     fetch_neurosynth_words : bool, optional (default=False)
         Wether to collect words from Neurosynth.
@@ -2754,7 +2958,8 @@ def fetch_neurovault(max_images=100,
     ResultFilter, IsNull, NotNull, NotEqual, GreaterOrEqual,
     GreaterThan, LessOrEqual, LessThan, IsIn, NotIn, Contains,
     NotContains, Pattern:
-        Helpers to make filtering easier and less verbose.
+        Helpers to express filtering criteria in a less verbose
+        manner.
 
     Some authors have included many fields in the metadata they
     provide; in order to make it easier to figure out which fields are
@@ -2779,9 +2984,23 @@ def fetch_neurovault(max_images=100,
     actually just a file but can be queried like an SQL database. So
     in addition to the ``Bunch`` returned by this function, if you
     find it more convenient, you can access the data through this
-    other interface.
+    other interface once it has been downloaded.
 
     Images and collections from disk are fetched before remote data.
+
+    If you pass a single value to match against the collection id
+    (wether as the 'id' field of the collection metadata or as the
+    'collection_id' field of the image metadata), the server is
+    directly queried for that collection, so
+    ``fetch_neurovault(collection_id=40)`` is as efficient as
+    ``fetch_neurovault(collection_ids=[40])`` (but in the former
+    version the other filters will still be applied). This is not true
+    for the image ids. If you pass a single value to match against any
+    of the fields listed in ``_COL_FILTERS_AVAILABLE_ON_SERVER``,
+    i.e., 'DOI', 'name', and 'owner_name', these filters can be
+    applied by the server, limiting the amount of metadata we have to
+    download: filtering on those fields makes the fetching faster
+    because the filtering takes place on the server side.
 
     In `download_new` mode, if a file exists on disk, it is not
     downloaded again, even if the version on the server is newer. Use
@@ -2814,23 +3033,21 @@ def fetch_neurovault(max_images=100,
 
     >>> fetch_neurovault(max_images=None, collection_terms={}, image_terms={})
 
-    To download all the images (matching the default filters) that are
-    not on disk or are more recent on the server:
+    To update all the images (matching the default filters):
 
     >>> newest = read_sql_query(
-        "SELECT MAX(modify_date) as max_date FROM images")['max_date'][0]
+        "SELECT MAX(modify_date) AS max_date FROM images")['max_date'][0]
     >>> fetch_neurovault(
         max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
 
     """
+    if collection_ids is not None or image_ids is not None:
+        max_images = None
     if max_images == 100:
         _logger.info(
             'fetch_neurovault: using default value of 100 for max_images. '
             'Set max_images to another value or None if you want more images.')
-    if collection_terms is None:
-        collection_terms = basic_collection_terms()
-    if image_terms is None:
-        image_terms = basic_image_terms()
+    collection_terms = dict(collection_terms)
     image_terms = dict(image_terms, **kwargs)
     image_terms, collection_terms = _move_col_id(image_terms, collection_terms)
 
@@ -2852,6 +3069,7 @@ def fetch_neurovault(max_images=100,
         neurovault_dir=neurovault_data_dir, mode=mode,
         collection_terms=collection_terms, collection_filter=collection_filter,
         image_terms=image_terms, image_filter=image_filter,
+        wanted_collection_ids=collection_ids, wanted_image_ids=image_ids,
         download_manager=download_manager, max_images=max_images)
 
     scroller = list(scroller)
@@ -3367,12 +3585,16 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
     """
     if curs is None:
         curs = local_database_cursor()
-    curs.execute(query, bindings)
-    resp = curs.fetchall()
+    try:
+        curs.execute(query, bindings)
+        resp = curs.fetchall()
+        description = curs.description
+    finally:
+        close_database_connection(_logger.debug)
     if not resp:
-        if curs.description is None:
+        if description is None:
             return None
-        col_names = list(zip(*curs.description))[0]
+        col_names = list(zip(*description))[0]
         return OrderedDict([(name, []) for name in col_names])
     if not as_columns:
         return resp
