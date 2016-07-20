@@ -465,7 +465,8 @@ def test_neurosynth_words_vectorized():
             word_weights[i] = 1
             words_dict = {'data':
                           {'values':
-                           {k: v for k, v in zip(words, word_weights)}}}
+                           dict([(k, v) for
+                                 k, v in zip(words, word_weights)])}}
             with open(file_name, 'w') as words_file:
                 json.dump(words_dict, words_file)
         freq, voc = nv.neurosynth_words_vectorized(words_files)

@@ -1616,8 +1616,8 @@ def _write_metadata(metadata, file_name):
         Path to the file in which to write the data.
 
     """
-    metadata = {k: v for k, v in metadata.items()
-                if 'absolute' not in k}
+    metadata = dict([(k, v) for k, v in metadata.items() if
+                     'absolute' not in k])
     with open(file_name, 'w') as metadata_file:
         json.dump(metadata, metadata_file)
 
@@ -2137,8 +2137,8 @@ class SQLiteDownloadManager(DownloadManager):
                     'also storing in database values for '
                     'previously existing columns: {} in table {}'.format(
                         ', '.join(col_names_to_add), table))
-            col_names.update({name: existing_columns[name] for
-                              name in col_names_to_add})
+            col_names.update(dict([(name, existing_columns[name]) for
+                                   name in col_names_to_add]))
         self._update_sql_statements()
         return
 
