@@ -1475,7 +1475,7 @@ def _remove_none_strings(metadata):
     """
     for key, value in metadata.items():
         if (isinstance(value, _basestring) and
-            re.match(r'(^$|^n/?a$|none|null)', value, re.IGNORECASE)):
+            re.match(r'($|n/?a$|none|null)', value, re.IGNORECASE)):
             metadata[key] = None
     return metadata
 
