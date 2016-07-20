@@ -508,7 +508,7 @@ def _get_encoding(resp):
     """
     try:
         return resp.headers.get_content_charset()
-    except AttributeError as e:
+    except AttributeError:
         pass
     content_type = resp.headers.get('Content-Type', '')
     match = re.search(r'charset=\b(.+)\b', content_type)
@@ -568,7 +568,7 @@ def _get_batch(query, prefix_msg=''):
         encoding = _get_encoding(resp)
         content = resp.read()
         batch = json.loads(content.decode(encoding))
-    except(URLError, ValueError) as e:
+    except(URLError, ValueError):
         _logger.exception('could not decypher batch from {}'.format(query))
         raise
     finally:
@@ -1454,15 +1454,23 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     """
     _logger.info('computing word features')
     words = []
+    voc_empty = True
     for file_name in word_files:
         try:
             with open(file_name) as word_file:
                 info = json.load(word_file)
                 words.append(info['data']['values'])
-        except Exception as e:
+                if info['data']['values'] != {}:
+                    voc_empty = False
+        except Exception:
             _logger.warning(
-                'could not load words from file {}'.format(file_name))
+                'could not load words from file {}; error: {}'.format(
+                    file_name, traceback.format_exc()))
             words.append({})
+    if voc_empty:
+        _logger.warning('No word weight could be loaded, '
+                        'vectorizing Neurosynth words failed')
+        return None, None
     vectorizer = DictVectorizer(**kwargs)
     frequencies = vectorizer.fit_transform(words).toarray()
     vocabulary = np.asarray(vectorizer.feature_names_)
@@ -3120,7 +3128,7 @@ def _absolute_paths_incorrect():
         bad_paths = cursor.fetchall()
         if bad_paths:
             return True
-    except Exception as e:
+    except Exception:
         return True
 
     return False
@@ -3436,7 +3444,7 @@ def close_database_connection(log_fun=_logger.info):
             'committed changes to local database and closed connection')
     except (AttributeError, sqlite3.ProgrammingError):
         pass
-    except Exception as e:
+    except Exception:
         _logger.exception()
     local_database_connection.connection_ = None
 
