@@ -1,5 +1,4 @@
 import os
-from collections import OrderedDict
 import tempfile
 import shutil
 import json
@@ -105,8 +104,8 @@ class _TemporaryDirectory(object):
         return self.temp_dir_
 
     def __exit__(self, *args):
-        shutil.rmtree(self.temp_dir_)
         nv.set_neurovault_directory(None)
+        shutil.rmtree(self.temp_dir_)
 
 
 def test_translate_types_to_sql():
@@ -149,9 +148,9 @@ def test_remove_none_strings():
 def test_append_filters_to_query():
     query = nv._append_filters_to_query(
         nv._NEUROVAULT_COLLECTIONS_URL,
-        OrderedDict([('owner', 'me'), ('DOI', 17)]))
+        {'DOI': 17})
     assert_equal(
-        query, 'http://neurovault.org/api/collections/?owner=me&DOI=17')
+        query, 'http://neurovault.org/api/collections/?DOI=17')
     query = nv._append_filters_to_query(
         nv._NEUROVAULT_COLLECTIONS_URL,
         {'id': 40})

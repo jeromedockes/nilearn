@@ -1460,8 +1460,8 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     voc_empty = True
     for file_name in word_files:
         try:
-            with open(file_name) as word_file:
-                info = json.load(word_file)
+            with open(file_name, 'rb') as word_file:
+                info = json.loads(word_file.read().decode('utf-8'))
                 words.append(info['data']['values'])
                 if info['data']['values'] != {}:
                     voc_empty = False
@@ -1621,8 +1621,8 @@ def _write_metadata(metadata, file_name):
     """
     metadata = dict([(k, v) for k, v in metadata.items() if
                      'absolute' not in k])
-    with open(file_name, 'w') as metadata_file:
-        json.dump(metadata, metadata_file)
+    with open(file_name, 'wb') as metadata_file:
+        metadata_file.write(json.dumps(metadata).encode('utf-8'))
 
 
 def _add_absolute_paths(root_dir, metadata, force=True):
@@ -2810,7 +2810,7 @@ def basic_image_terms():
 
     """
     return {'not_mni': False, 'is_valid': True, 'is_thresholded': False,
-            'map_type': IsIn({'F map', 'T map', 'Z map'}),
+            'map_type': IsIn(('F map', 'T map', 'Z map')),
             'id': NotIn(_KNOWN_BAD_IMAGE_IDS)}
 
 
