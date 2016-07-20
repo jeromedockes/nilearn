@@ -447,8 +447,8 @@ def test_fetch_neurosynth_words():
             temp_dir, 'neurosynth_words_for_image_110.json')
         nv._fetch_neurosynth_words(
             110, words_file_name, temp_dir)
-        with open(words_file_name) as words_file:
-            words = json.load(words_file)
+        with open(words_file_name, 'rb') as words_file:
+            words = json.loads(words_file.read().decode('utf-8'))
             assert_true(words)
 
 
@@ -456,7 +456,7 @@ def test_neurosynth_words_vectorized():
     n_im = 5
     with _TemporaryDirectory() as temp_dir:
         words_files = [
-            os.path.join(temp_dir, 'words_for_image_{}.json'.format(i)) for
+            os.path.join(temp_dir, 'words_for_image_{0}.json'.format(i)) for
             i in range(n_im)]
         words = [str(i) for i in range(n_im)]
         for i, file_name in enumerate(words_files):
@@ -466,8 +466,8 @@ def test_neurosynth_words_vectorized():
                           {'values':
                            dict([(k, v) for
                                  k, v in zip(words, word_weights)])}}
-            with open(file_name, 'w') as words_file:
-                json.dump(words_dict, words_file)
+            with open(file_name, 'wb') as words_file:
+                words_file.write(json.dumps(words_dict).encode('utf-8'))
         freq, voc = nv.neurosynth_words_vectorized(words_files)
         assert_equal(freq.shape, (n_im, n_im))
         assert((freq.sum(axis=0) == np.ones(n_im)).all())
@@ -488,24 +488,30 @@ def test_BaseDownloadManager():
 
 def test_write_read_metadata():
     metadata = {'relative_path': 'collection_1',
-                'absolute_path': '/tmp/collection_1'}
+                'absolute_path': os.path.join('tmp', 'collection_1')}
     with _TemporaryDirectory() as temp_dir:
         nv._write_metadata(metadata, os.path.join(temp_dir, 'metadata.json'))
-        with open(os.path.join(temp_dir, 'metadata.json')) as meta_file:
-            written_metadata = json.load(meta_file)
+        with open(os.path.join(temp_dir, 'metadata.json'), 'rb') as meta_file:
+            written_metadata = json.loads(meta_file.read().decode('utf-8'))
         assert_true('relative_path' in written_metadata)
         assert_false('absolute_path' in written_metadata)
-        read_metadata = nv._add_absolute_paths('/tmp/', written_metadata)
-        assert_equal(read_metadata['absolute_path'], '/tmp/collection_1')
+        read_metadata = nv._add_absolute_paths('tmp', written_metadata)
+        assert_equal(read_metadata['absolute_path'],
+                     os.path.join('tmp', 'collection_1'))
 
 
 def test_add_absolute_paths():
     meta = {'col_relative_path': 'collection_1',
-            'col_absolute_path': '/dir_0/neurovault/collection_1'}
-    meta = nv._add_absolute_paths('/dir_1/neurovault/', meta, force=False)
-    assert_equal(meta['col_absolute_path'], '/dir_0/neurovault/collection_1')
-    meta = nv._add_absolute_paths('/dir_1/neurovault/', meta, force=True)
-    assert_equal(meta['col_absolute_path'], '/dir_1/neurovault/collection_1')
+            'col_absolute_path': os.path.join(
+                'dir_0', 'neurovault', 'collection_1')}
+    meta = nv._add_absolute_paths(os.path.join('dir_1', 'neurovault'),
+                                  meta, force=False)
+    assert_equal(meta['col_absolute_path'],
+                 os.path.join('dir_0', 'neurovault', 'collection_1'))
+    meta = nv._add_absolute_paths(os.path.join('dir_1', 'neurovault'),
+                                  meta, force=True)
+    assert_equal(meta['col_absolute_path'],
+                 os.path.join('dir_1', 'neurovault', 'collection_1'))
 
 
 def test_DownloadManager():
@@ -557,8 +563,8 @@ def test_json_add_collection_dir():
         coll_dir = os.path.join(data_temp_dir, 'collection_1')
         os.makedirs(coll_dir)
         coll_file_name = os.path.join(coll_dir, 'collection_1.json')
-        with open(coll_file_name, 'w') as coll_file:
-            json.dump({'id': 1}, coll_file)
+        with open(coll_file_name, 'wb') as coll_file:
+            coll_file.write(json.dumps({'id': 1}).encode('utf-8'))
         loaded = nv._json_add_collection_dir(coll_file_name)
         assert_equal(loaded['absolute_path'], coll_dir)
         assert_equal(loaded['relative_path'], 'collection_1')
@@ -569,10 +575,11 @@ def test_json_add_im_files_paths():
         coll_dir = os.path.join(data_temp_dir, 'collection_1')
         os.makedirs(coll_dir)
         im_file_name = os.path.join(coll_dir, 'image_1.json')
-        with open(im_file_name, 'w') as im_file:
-            json.dump({'id': 1}, im_file)
+        with open(im_file_name, 'wb') as im_file:
+            im_file.write(json.dumps({'id': 1}).encode('utf-8'))
         loaded = nv._json_add_im_files_paths(im_file_name)
-        assert_equal(loaded['relative_path'], 'collection_1/image_1.nii.gz')
+        assert_equal(loaded['relative_path'],
+                     os.path.join('collection_1', 'image_1.nii.gz'))
         assert_true(loaded.get('neurosynth_words_relative_path') is None)
 
 
