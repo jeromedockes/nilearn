@@ -63,7 +63,7 @@ except ImportError:
     from urllib import urlencode
     from urllib2 import build_opener, Request, URLError
 
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import numpy as np
 from sklearn.datasets.base import Bunch
@@ -78,8 +78,8 @@ _NEUROVAULT_COLLECTIONS_URL = urljoin(_NEUROVAULT_BASE_URL, 'collections/')
 _NEUROVAULT_IMAGES_URL = urljoin(_NEUROVAULT_BASE_URL, 'images/')
 _NEUROSYNTH_FETCH_WORDS_URL = 'http://neurosynth.org/api/v2/decode/'
 
-_COL_FILTERS_AVAILABLE_ON_SERVER = {'DOI', 'name', 'owner', 'id'}
-_IM_FILTERS_AVAILABLE_ON_SERVER = set()
+_COL_FILTERS_AVAILABLE_ON_SERVER = ('DOI', 'name', 'owner', 'id')
+_IM_FILTERS_AVAILABLE_ON_SERVER = tuple()
 
 _DEFAULT_BATCH_SIZE = 100
 
@@ -889,7 +889,9 @@ class IsIn(_SpecialValue):
     --------
     >>> countable = IsIn(range(11))
     >>> 7 == countable
+    True
     >>> countable == 12
+    False
 
     """
     def __init__(self, accepted):
@@ -949,7 +951,9 @@ class Contains(_SpecialValue):
     --------
     >>> contains = Contains('house', 'face')
     >>> 'face vs house' == contains
+    True
     >>> 'smiling face vs frowning face' == contains
+    False
 
     """
     def __init__(self, *args):
@@ -1026,7 +1030,9 @@ class Pattern(_SpecialValue):
     --------
     >>> pattern = Pattern(r'[0-9akqj]{5}$')
     >>> 'ak05q' == pattern
+    True
     >>> 'ak05e' == pattern
+    False
 
     """
     def __init__(self, pattern, flags=0):
@@ -1102,7 +1108,9 @@ class ResultFilter(object):
     --------
     >>> filt = ResultFilter(a=0).AND(ResultFilter(b=1).OR(ResultFilter(b=2)))
     >>> filt({'a': 0, 'b': 1})
+    True
     >>> filt({'a': 0, 'b': 0})
+    False
 
     """
 
@@ -2599,9 +2607,9 @@ def _split_terms(terms, available_on_server):
     """Isolate term filters that can be applied by server."""
     terms_ = dict(terms)
     server_terms = {k: terms_.pop(k) for k in
-                    available_on_server.intersection(terms_.keys()) if
-                    isinstance(terms_[k], _basestring) or
-                    isinstance(terms_[k], int)}
+                    available_on_server if k in terms_ and
+                    (isinstance(terms_[k], _basestring) or
+                     isinstance(terms_[k], int))}
     return terms_, server_terms
 
 
@@ -3029,13 +3037,16 @@ def fetch_neurovault(max_images=100,
     To download **all** the collections and images from Neurovault:
 
     >>> fetch_neurovault(max_images=None, collection_terms={}, image_terms={})
+    ... # doctest: +SKIP
 
     To update all the images (matching the default filters):
 
     >>> newest = read_sql_query(
-        "SELECT MAX(modify_date) AS max_date FROM images")['max_date'][0]
+    ... "SELECT MAX(modify_date) AS max_date FROM images")['max_date'][0]
+    ... # doctest: +SKIP
     >>> fetch_neurovault(
-        max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
+    ... max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
+    ... # doctest: +SKIP
 
     """
     if collection_ids is not None or image_ids is not None:
@@ -3570,15 +3581,16 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
 
     Examples
     --------
-    >>> data = read_sql_query("SELECT images.id AS image_id, "
-                              "images.absolute_path AS image_path, "
-                              "collections.id AS collection_id, "
-                              "collections.DOI FROM images "
-                              "INNER JOIN collections ON "
-                              "images.collection_id=collections.id")
+    >>> data = nv.read_sql_query("SELECT images.id AS image_id, "
+    ... "images.absolute_path AS image_path, "
+    ... "collections.id AS collection_id, "
+    ... "collections.DOI FROM images "
+    ... "INNER JOIN collections ON "
+    ... "images.collection_id=collections.id")
+    ... # doctest: +SKIP
 
-    >>> print(list(data.keys()))
-
+    >>> print(list(data.keys())) # doctest: +SKIP
+    ['image_id', 'image_path', 'collection_id', 'DOI']
     """
     if curs is None:
         curs = local_database_cursor()

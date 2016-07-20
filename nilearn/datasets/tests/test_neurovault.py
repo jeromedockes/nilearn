@@ -250,7 +250,7 @@ def test_OrderComp():
 
 
 def test_IsIn():
-    is_in = nv.IsIn({0, 1})
+    is_in = nv.IsIn((0, 1))
     assert_true(is_in == 0)
     assert_false(is_in == 2)
     assert_true(0 == is_in)
@@ -265,7 +265,7 @@ def test_IsIn():
 
 
 def test_NotIn():
-    not_in = nv.NotIn({0, 1})
+    not_in = nv.NotIn((0, 1))
     assert_true(not_in != 0)
     assert_false(not_in != 2)
     assert_true(0 != not_in)
@@ -348,10 +348,10 @@ def test_ResultFilter():
     filter_1['d'] = nv.NotNull()
     assert_true(filter_1({'c': 2, 'd': 1}))
     assert_false(filter_1({'c': 2, 'd': 0}))
-    filter_1['d'] = nv.IsIn({0, 1})
+    filter_1['d'] = nv.IsIn((0, 1))
     assert_true(filter_1({'c': 2, 'd': 1}))
     assert_false(filter_1({'c': 2, 'd': 2}))
-    filter_1['d'] = nv.NotIn({0, 1})
+    filter_1['d'] = nv.NotIn((0, 1))
     assert_false(filter_1({'c': 2, 'd': 1}))
     assert_true(filter_1({'c': 2, 'd': 3}))
     filter_1.add_filter(lambda d: len(d) > 2)
@@ -586,7 +586,7 @@ def test_split_terms():
 
 def test_move_unknown_terms_to_local_filter():
     terms, new_filter = nv._move_unknown_terms_to_local_filter(
-        {'a': 0, 'b': 1}, nv.ResultFilter(), {'a'})
+        {'a': 0, 'b': 1}, nv.ResultFilter(), ('a',))
     assert_equal(terms, {'a': 0})
     assert_false(new_filter({'b': 0}))
     assert_true(new_filter({'b': 1}))
