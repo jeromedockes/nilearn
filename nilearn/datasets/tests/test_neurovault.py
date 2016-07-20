@@ -1,4 +1,9 @@
 import os
+try:
+    from os.path import samefile
+except ImportError:
+    # os.path.samefile not available on windows
+    samefile = None
 import tempfile
 import shutil
 import json
@@ -10,6 +15,15 @@ from nose.tools import (assert_true, assert_false, assert_equal)
 
 from nilearn.datasets import neurovault as nv
 
+
+def _same_stat(path_1, path_2):
+    path_1 = os.path.abspath(os.path.expanduser(path_1))
+    path_2 = os.path.abspath(os.path.expanduser(path_2))
+    return os.stat(path_1) == os.stat(path_2)
+
+
+if samefile is None:
+    samefile = _same_stat
 
 _EXAMPLE_IM_META = {
     "analysis_level": None,
@@ -410,7 +424,7 @@ def test_simple_download():
 def test_checked_get_dataset_dir():
     with _TemporaryDirectory() as temp_dir:
         dataset_dir = nv._checked_get_dataset_dir('neurovault', temp_dir)
-        assert_true(os.path.samefile(
+        assert_true(samefile(
             dataset_dir, os.path.join(temp_dir, 'neurovault')))
 
 
@@ -423,7 +437,7 @@ def test_set_neurovault_directory():
     try:
         with _TemporaryDirectory() as temp_dir:
             dataset_dir = nv.set_neurovault_directory(temp_dir)
-            assert_true(os.path.samefile(dataset_dir, temp_dir))
+            assert_true(samefile(dataset_dir, temp_dir))
     finally:
         nv.set_neurovault_directory(None)
 
@@ -431,7 +445,7 @@ def test_set_neurovault_directory():
 def test_get_temp_dir():
     with _TemporaryDirectory() as temp_dir:
         returned_temp_dir = nv._get_temp_dir(temp_dir)
-        assert_true(os.path.samefile(
+        assert_true(samefile(
             returned_temp_dir, temp_dir))
     temp_dir = nv._get_temp_dir()
     try:
