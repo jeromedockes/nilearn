@@ -50,7 +50,11 @@ from glob import glob
 from tempfile import mkdtemp
 from pprint import pprint
 import sqlite3
-from collections import OrderedDict, Sequence, defaultdict, Container
+from collections import Sequence, defaultdict, Container
+try:
+    from collections import OrderedDict
+except ImportError:
+    OrderedDict = dict
 import atexit
 import errno
 import traceback
@@ -63,13 +67,12 @@ except ImportError:
     from urllib import urlencode
     from urllib2 import build_opener, Request, URLError
 
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 import numpy as np
 from sklearn.datasets.base import Bunch
 from sklearn.feature_extraction import DictVectorizer
 
 from .._utils.compat import _basestring
+from ..plotting.img_plotting import matplotlib as mpl
 from .utils import _fetch_file, _get_dataset_dir
 
 
@@ -1989,8 +1992,9 @@ class SQLiteDownloadManager(DownloadManager):
             Identical to the argument `collection_info`.
 
         """
-        collection_info = {re.sub(r'\W', '_', k): _to_supported_type(v) for
-                           k, v in collection_info.items()}
+        collection_info = dict(
+            [(re.sub(r'\W', '_', k), _to_supported_type(v)) for
+             k, v in collection_info.items()])
         values = [collection_info.get(field) for field in self.col_fields_]
         try:
             self.cursor_.execute(self.col_insert_, values)
@@ -2032,8 +2036,8 @@ class SQLiteDownloadManager(DownloadManager):
             Identical to the argument `image_info`.
 
         """
-        image_info = {re.sub(r'\W', '_', k): _to_supported_type(v) for
-                      k, v in image_info.items()}
+        image_info = dict([(re.sub(r'\W', '_', k), _to_supported_type(v)) for
+                           k, v in image_info.items()])
         values = [image_info.get(field) for field in self.im_fields_]
         try:
             self.cursor_.execute(self.im_insert_, values)
@@ -2614,10 +2618,10 @@ def _scroll_local_data(neurovault_dir,
 def _split_terms(terms, available_on_server):
     """Isolate term filters that can be applied by server."""
     terms_ = dict(terms)
-    server_terms = {k: terms_.pop(k) for k in
-                    available_on_server if k in terms_ and
-                    (isinstance(terms_[k], _basestring) or
-                     isinstance(terms_[k], int))}
+    server_terms = dict([(k, terms_.pop(k)) for k in
+                         available_on_server if k in terms_ and
+                         (isinstance(terms_[k], _basestring) or
+                          isinstance(terms_[k], int))])
     return terms_, server_terms
 
 
@@ -3313,7 +3317,7 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
                            fontsize='x-large', **kwargs):
     """Helper function for ``plot_fields_occurrences``"""
     if ax is None:
-        fig = plt.figure()
+        fig = mpl.pyplot.figure()
         ax = fig.gca()
     width = .8
     name_freq = [(name, info[1]) for (name, info) in keys.items()]
@@ -3329,11 +3333,11 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
 
 def _prepare_subplots_fields_occurrences():
     """Helper function for ``plot_fields_occurrences``"""
-    gs_im = GridSpec(1, 1, bottom=.7, top=.95)
-    gs_col = GridSpec(1, 1, bottom=.3, top=.5)
-    ax_im = plt.subplot(gs_im[:])
+    gs_im = mpl.gridspec.GridSpec(1, 1, bottom=.7, top=.95)
+    gs_col = mpl.gridspec.GridSpec(1, 1, bottom=.3, top=.5)
+    ax_im = mpl.pyplot.subplot(gs_im[:])
     ax_im.set_title('image fields', fontsize='xx-large')
-    ax_col = plt.subplot(gs_col[:])
+    ax_col = mpl.pyplot.subplot(gs_col[:])
     ax_col.set_title('column fields', fontsize='xx-large')
     return ax_im, ax_col
 

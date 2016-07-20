@@ -16,7 +16,6 @@ See :func:`nilearn.datasets.fetch_neurovault` documentation for more details.
 import warnings
 
 import numpy as np
-from matplotlib import pyplot as plt
 from scipy import stats
 from sklearn.decomposition import FastICA
 
@@ -110,7 +109,8 @@ print('Done, plotting results.')
 ######################################################################
 # Generate figures
 
-plt.rcParams['figure.max_open_warning'] = n_components + 2
+plotting.img_plotting.matplotlib.pyplot.rcParams[
+    'figure.max_open_warning'] = n_components + 2
 
 for index, (ic_map, ic_terms) in enumerate(zip(
         ica_maps, term_weights_for_components)):
