@@ -16,15 +16,13 @@ See :func:`nilearn.datasets.fetch_neurovault` documentation for more details.
 import warnings
 
 import numpy as np
-from matplotlib import pyplot as plt
 from scipy import stats
 from sklearn.decomposition import FastICA
 
-from nilearn.datasets import neurovault as nv, load_mni152_brain_mask
+from nilearn.datasets import neurovault as nv
 from nilearn.image import new_img_like
-from nilearn.input_data import NiftiMasker
 from nilearn._utils import check_niimg
-from nilearn import plotting
+
 
 warnings.simplefilter('error', RuntimeWarning)  # Catch numeric issues in imgs
 warnings.simplefilter('ignore', DeprecationWarning)
@@ -61,12 +59,15 @@ print("\nTop 10 neurosynth terms from downloaded images:\n")
 print('{2:>20}{0:>15} : {1:<15}\n{2:>20}{2:->30}'.format(
     'term', 'total score', ''))
 for term_idx in np.argsort(total_scores)[-10:][::-1]:
-    print('{:>35} : {:.3f}'.format(
+    print('{0:>35} : {1:.3f}'.format(
         vocabulary[term_idx], total_scores[term_idx]))
 
 
 ######################################################################
 # Reshape and mask images
+
+from nilearn.datasets import load_mni152_brain_mask
+from nilearn.input_data import NiftiMasker
 
 print("\nReshaping and masking images.\n")
 
@@ -84,8 +85,8 @@ for index, image_path in enumerate(images):
         X.append(masker.transform(image))
     except Exception as e:
         meta = nv_data['images_meta'][index]
-        print("Failed to mask/reshape image: id: {}; "
-              "name: '{}'; collection: {}; error: {}".format(
+        print("Failed to mask/reshape image: id: {0}; "
+              "name: '{1}'; collection: {2}; error: {3}".format(
                   meta.get('id'), meta.get('name'),
                   meta.get('collection_id'), e))
         is_usable[index] = False
@@ -110,7 +111,10 @@ print('Done, plotting results.')
 ######################################################################
 # Generate figures
 
-plt.rcParams['figure.max_open_warning'] = n_components + 2
+from nilearn import plotting
+
+plotting.img_plotting.matplotlib.pyplot.rcParams[
+    'figure.max_open_warning'] = n_components + 2
 
 for index, (ic_map, ic_terms) in enumerate(zip(
         ica_maps, term_weights_for_components)):
@@ -126,7 +130,7 @@ for index, (ic_map, ic_terms) in enumerate(zip(
 
     # Use the 4 terms weighted most as a title
     important_terms = vocabulary[np.argsort(ic_terms)[-4:]]
-    title = '{}: {}'.format(index, ', '.join(important_terms[::-1]))
+    title = '{0}: {1}'.format(index, ', '.join(important_terms[::-1]))
     display.title(title, size=16)
 
 # Done.

@@ -50,7 +50,11 @@ from glob import glob
 from tempfile import mkdtemp
 from pprint import pprint
 import sqlite3
-from collections import OrderedDict, Sequence, defaultdict, Container
+from collections import Sequence, defaultdict, Container
+try:
+    from collections import OrderedDict
+except ImportError:
+    OrderedDict = dict
 import atexit
 import errno
 import traceback
@@ -63,13 +67,12 @@ except ImportError:
     from urllib import urlencode
     from urllib2 import build_opener, Request, URLError
 
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 import numpy as np
 from sklearn.datasets.base import Bunch
 from sklearn.feature_extraction import DictVectorizer
 
 from .._utils.compat import _basestring
+from ..plotting.img_plotting import matplotlib as mpl
 from .utils import _fetch_file, _get_dataset_dir
 
 
@@ -108,7 +111,7 @@ def _to_supported_type(obj):
         return json.dumps(obj)
     except TypeError:
         pass
-    return u'{}'.format(obj)
+    return u'{0}'.format(obj)
 
 _IMAGE_BASIC_FIELDS = OrderedDict()
 _IMAGE_BASIC_FIELDS['id'] = int
@@ -478,7 +481,7 @@ def _append_filters_to_query(query, filters):
     if 'id' in filters:
         return urljoin(query, str(filters['id']))
     new_query = urljoin(
-        query, '?{}'.format(urlencode(filters)))
+        query, '?{0}'.format(urlencode(filters)))
     return new_query
 
 
@@ -508,13 +511,13 @@ def _get_encoding(resp):
     """
     try:
         return resp.headers.get_content_charset()
-    except AttributeError as e:
+    except AttributeError:
         pass
     content_type = resp.headers.get('Content-Type', '')
     match = re.search(r'charset=\b(.+)\b', content_type)
     if match is None:
         raise ValueError(
-            'HTTP response encoding not found; headers: {}'.format(
+            'HTTP response encoding not found; headers: {0}'.format(
                 resp.headers))
     return match.group(1)
 
@@ -556,20 +559,20 @@ def _get_batch(query, prefix_msg=''):
     request = Request(query)
     request.add_header('Connection', 'Keep-Alive')
     opener = build_opener()
-    _logger.debug('{}getting new batch: {}'.format(
+    _logger.debug('{0}getting new batch: {1}'.format(
         prefix_msg, query))
     try:
         resp = opener.open(request)
-    except URLError as e:
+    except URLError:
         _logger.exception(
-            'could not download batch from {}'.format(query))
+            'could not download batch from {0}'.format(query))
         raise
     try:
         encoding = _get_encoding(resp)
         content = resp.read()
         batch = json.loads(content.decode(encoding))
-    except(URLError, ValueError) as e:
-        _logger.exception('could not decypher batch from {}'.format(query))
+    except(URLError, ValueError):
+        _logger.exception('could not decypher batch from {0}'.format(query))
         raise
     finally:
         resp.close()
@@ -577,8 +580,8 @@ def _get_batch(query, prefix_msg=''):
         batch = {'count': 1, 'results': [batch]}
     for key in ['results', 'count']:
         if batch.get(key) is None:
-            msg = ('could not find required key "{}" '
-                   'in batch retrieved from {}'.format(key, query))
+            msg = ('could not find required key "{0}" '
+                   'in batch retrieved from {1}'.format(key, query))
             _logger.error(msg)
             raise ValueError(msg)
 
@@ -630,7 +633,7 @@ def _scroll_server_results(url, local_filter=_empty_filter,
     query = _append_filters_to_query(url, query_terms)
     if batch_size is None:
         batch_size = _DEFAULT_BATCH_SIZE
-    query = '{}{}limit={}&offset={{}}'.format(
+    query = '{0}{1}limit={2}&offset={{0}}'.format(
         query, ('&' if '?' in query else '?'), batch_size)
     downloaded = 0
     n_available = None
@@ -639,7 +642,7 @@ def _scroll_server_results(url, local_filter=_empty_filter,
         batch = _get_batch(new_query, prefix_msg)
         batch_size = len(batch['results'])
         downloaded += batch_size
-        _logger.debug('{}batch size: {}'.format(prefix_msg, batch_size))
+        _logger.debug('{0}batch size: {1}'.format(prefix_msg, batch_size))
         if n_available is None:
             n_available = batch['count']
             max_results = (n_available if max_results is None
@@ -1234,12 +1237,12 @@ def _simple_download(url, target_file, temp_dir):
     here we replace it with an ``URLError``.
 
     """
-    _logger.debug('downloading file: {}'.format(url))
+    _logger.debug('downloading file: {0}'.format(url))
     try:
         downloaded = _fetch_file(url, temp_dir, resume=False,
                                  overwrite=True, verbose=0)
     except Exception as e:
-        _logger.error('problem downloading file from {}'.format(url))
+        _logger.error('problem downloading file from {0}'.format(url))
 
         # reason is a property of urlib.error.HTTPError objects,
         # but these objects don't have a setter for it, so
@@ -1248,12 +1251,12 @@ def _simple_download(url, target_file, temp_dir):
         if (isinstance(e, AttributeError) and
             e.args[0] == "can't set attribute"):
             raise URLError(
-                'HTTPError raised in nilearn.datasets._fetch_file: {}'.format(
+                'HTTPError raised in nilearn.datasets._fetch_file: {0}'.format(
                     traceback.format_exc()))
         raise
     shutil.move(downloaded, target_file)
     _logger.debug(
-        'download succeeded, downloaded to: {}'.format(target_file))
+        'download succeeded, downloaded to: {0}'.format(target_file))
     return target_file
 
 
@@ -1299,7 +1302,7 @@ def _checked_get_dataset_dir(dataset_name, suggested_dir=None,
     if not write_required:
         return dataset_dir
     if not os.access(dataset_dir, os.W_OK):
-        raise IOError('Permission denied: {}'.format(dataset_dir))
+        raise IOError('Permission denied: {0}'.format(dataset_dir))
     return dataset_dir
 
 
@@ -1413,7 +1416,7 @@ def _fetch_neurosynth_words(image_id, target_file, temp_dir):
 
     """
     query = urljoin(_NEUROSYNTH_FETCH_WORDS_URL,
-                    '?neurovault={}'.format(image_id))
+                    '?neurovault={0}'.format(image_id))
     _simple_download(query, target_file, temp_dir)
 
 
@@ -1454,19 +1457,27 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     """
     _logger.info('computing word features')
     words = []
+    voc_empty = True
     for file_name in word_files:
         try:
-            with open(file_name) as word_file:
-                info = json.load(word_file)
+            with open(file_name, 'rb') as word_file:
+                info = json.loads(word_file.read().decode('utf-8'))
                 words.append(info['data']['values'])
-        except Exception as e:
+                if info['data']['values'] != {}:
+                    voc_empty = False
+        except Exception:
             _logger.warning(
-                'could not load words from file {}'.format(file_name))
+                'could not load words from file {0}; error: {1}'.format(
+                    file_name, traceback.format_exc()))
             words.append({})
+    if voc_empty:
+        _logger.warning('No word weight could be loaded, '
+                        'vectorizing Neurosynth words failed')
+        return None, None
     vectorizer = DictVectorizer(**kwargs)
     frequencies = vectorizer.fit_transform(words).toarray()
     vocabulary = np.asarray(vectorizer.feature_names_)
-    _logger.info('computing word features done; vocabulary size: {}'.format(
+    _logger.info('computing word features done; vocabulary size: {0}'.format(
         vocabulary.size))
     return frequencies, vocabulary
 
@@ -1608,10 +1619,10 @@ def _write_metadata(metadata, file_name):
         Path to the file in which to write the data.
 
     """
-    metadata = {k: v for k, v in metadata.items()
-                if 'absolute' not in k}
-    with open(file_name, 'w') as metadata_file:
-        json.dump(metadata, metadata_file)
+    metadata = dict([(k, v) for k, v in metadata.items() if
+                     'absolute' not in k])
+    with open(file_name, 'wb') as metadata_file:
+        metadata_file.write(json.dumps(metadata).encode('utf-8'))
 
 
 def _add_absolute_paths(root_dir, metadata, force=True):
@@ -1645,7 +1656,7 @@ def _add_absolute_paths(root_dir, metadata, force=True):
     for name, value in metadata.items():
         match = re.match(r'(.*)relative_path(.*)', name)
         if match is not None:
-            abs_name = '{}absolute_path{}'.format(*match.groups())
+            abs_name = '{0}absolute_path{1}'.format(*match.groups())
             absolute_paths[abs_name] = os.path.join(root_dir, value)
     for name, value in absolute_paths.items():
         set_func(name, value)
@@ -1730,7 +1741,7 @@ class DownloadManager(BaseDownloadManager):
 
         """
         collection_id = collection_info['id']
-        collection_name = 'collection_{}'.format(collection_id)
+        collection_name = 'collection_{0}'.format(collection_id)
         collection_dir = os.path.join(self.nv_data_dir_, collection_name)
         collection_info['relative_path'] = collection_name
         collection_info['absolute_path'] = collection_dir
@@ -1770,7 +1781,7 @@ class DownloadManager(BaseDownloadManager):
             image_info['absolute_path'])
         collection_relative_path = os.path.basename(
             collection_absolute_path)
-        ns_words_file_name = 'neurosynth_words_for_image_{}.json'.format(
+        ns_words_file_name = 'neurosynth_words_for_image_{0}.json'.format(
             image_info['id'])
         ns_words_relative_path = os.path.join(collection_relative_path,
                                               ns_words_file_name)
@@ -1783,7 +1794,7 @@ class DownloadManager(BaseDownloadManager):
                     ns_words_absolute_path, self.temp_dir_)
             except(URLError, ValueError) as e:
                 _logger.exception(
-                    'could not fetch words for image {}'.format(
+                    'could not fetch words for image {0}'.format(
                         image_info['id']))
                 self.neurosynth_error_handler_(e)
                 return
@@ -1817,7 +1828,7 @@ class DownloadManager(BaseDownloadManager):
 
         """
         collection_id = image_info['collection_id']
-        collection_relative_path = 'collection_{}'.format(collection_id)
+        collection_relative_path = 'collection_{0}'.format(collection_id)
         collection_absolute_path = os.path.join(
             self.nv_data_dir_, collection_relative_path)
         if not os.path.isdir(collection_absolute_path):
@@ -1826,7 +1837,7 @@ class DownloadManager(BaseDownloadManager):
             self.collection(col_batch['results'][0])
         image_id = image_info['id']
         image_url = image_info['file']
-        image_file_name = 'image_{}.nii.gz'.format(image_id)
+        image_file_name = 'image_{0}.nii.gz'.format(image_id)
         image_relative_path = os.path.join(
             collection_relative_path, image_file_name)
         image_absolute_path = os.path.join(
@@ -1836,7 +1847,7 @@ class DownloadManager(BaseDownloadManager):
         image_info['relative_path'] = image_relative_path
         reduced_image_url = image_info.get('reduced_representation')
         if self.fetch_reduced_rep_ and reduced_image_url is not None:
-            reduced_image_name = 'image_{}_reduced_rep.npy'.format(image_id)
+            reduced_image_name = 'image_{0}_reduced_rep.npy'.format(image_id)
             reduced_image_relative_path = os.path.join(
                 collection_relative_path, reduced_image_name)
             reduced_image_absolute_path = os.path.join(
@@ -1849,12 +1860,12 @@ class DownloadManager(BaseDownloadManager):
                        '_absolute_path'] = reduced_image_absolute_path
         image_info = self._add_words(image_info)
         metadata_file_path = os.path.join(
-            collection_absolute_path, 'image_{}_metadata.json'.format(
+            collection_absolute_path, 'image_{0}_metadata.json'.format(
                 image_id))
         _write_metadata(image_info, metadata_file_path)
         # self.already_downloaded_ is incremented only after
         # this routine returns successfully.
-        _logger.info('already fetched {} image{}'.format(
+        _logger.info('already fetched {0} image{1}'.format(
             self.already_downloaded_ + 1,
             ('s' if self.already_downloaded_ + 1 > 1 else '')))
         return image_info
@@ -1871,7 +1882,7 @@ class DownloadManager(BaseDownloadManager):
         image_info = self._add_words(image_info)
         metadata_file_path = os.path.join(
             os.path.dirname(image_info['absolute_path']),
-            'image_{}_metadata.json'.format(image_info['id']))
+            'image_{0}_metadata.json'.format(image_info['id']))
         _write_metadata(image_info, metadata_file_path)
         return image_info
 
@@ -1981,8 +1992,9 @@ class SQLiteDownloadManager(DownloadManager):
             Identical to the argument `collection_info`.
 
         """
-        collection_info = {re.sub(r'\W', '_', k): _to_supported_type(v) for
-                           k, v in collection_info.items()}
+        collection_info = dict(
+            [(re.sub(r'\W', '_', k), _to_supported_type(v)) for
+             k, v in collection_info.items()])
         values = [collection_info.get(field) for field in self.col_fields_]
         try:
             self.cursor_.execute(self.col_insert_, values)
@@ -2024,8 +2036,8 @@ class SQLiteDownloadManager(DownloadManager):
             Identical to the argument `image_info`.
 
         """
-        image_info = {re.sub(r'\W', '_', k): _to_supported_type(v) for
-                      k, v in image_info.items()}
+        image_info = dict([(re.sub(r'\W', '_', k), _to_supported_type(v)) for
+                           k, v in image_info.items()])
         values = [image_info.get(field) for field in self.im_fields_]
         try:
             self.cursor_.execute(self.im_insert_, values)
@@ -2118,19 +2130,19 @@ class SQLiteDownloadManager(DownloadManager):
             existing_col_names = existing_columns.keys()
             for col_name in set(col_names).difference(existing_col_names):
                 _logger.warning(
-                    'adding column "{}" to existing table "{}"'.format(
+                    'adding column "{0}" to existing table "{1}"'.format(
                         col_name, table))
                 col_str = _get_columns_string([col_name], ref_names)
                 self.cursor_.execute(
-                    "ALTER TABLE {} ADD {}".format(table, col_str))
+                    "ALTER TABLE {0} ADD {1}".format(table, col_str))
             col_names_to_add = set(existing_col_names).difference(col_names)
             if col_names_to_add:
                 _logger.info(
                     'also storing in database values for '
-                    'previously existing columns: {} in table {}'.format(
+                    'previously existing columns: {0} in table {1}'.format(
                         ', '.join(col_names_to_add), table))
-            col_names.update({name: existing_columns[name] for
-                              name in col_names_to_add})
+            col_names.update(dict([(name, existing_columns[name]) for
+                                   name in col_names_to_add]))
         self._update_sql_statements()
         return
 
@@ -2171,9 +2183,10 @@ def _json_add_im_files_paths(file_name, force=True):
     set_func = loaded.__setitem__ if force else loaded.setdefault
     dir_path = os.path.dirname(file_name)
     dir_relative_path = os.path.basename(dir_path)
-    image_file_name = 'image_{}.nii.gz'.format(loaded['id'])
-    reduced_file_name = 'image_{}_reduced_rep.npy'.format(loaded['id'])
-    words_file_name = 'neurosynth_words_for_image_{}.json'.format(loaded['id'])
+    image_file_name = 'image_{0}.nii.gz'.format(loaded['id'])
+    reduced_file_name = 'image_{0}_reduced_rep.npy'.format(loaded['id'])
+    words_file_name = 'neurosynth_words_for_image_{0}.json'.format(
+        loaded['id'])
     set_func('relative_path', os.path.join(dir_relative_path, image_file_name))
     if os.path.isfile(os.path.join(dir_path, reduced_file_name)):
         set_func('reduced_representation_relative_path',
@@ -2320,7 +2333,7 @@ class _ServerDataScroller(object):
                           'stop scrolling remote data'.format(
                               self.consecutive_fails_))
             raise RuntimeError(
-                '{} consecutive bad downloads'.format(
+                '{0} consecutive bad downloads'.format(
                     self.consecutive_fails_))
 
     def _scroll_collection(self, collection):
@@ -2349,11 +2362,11 @@ class _ServerDataScroller(object):
         n_im_in_collection = 0
         fails_in_collection = 0
         query = urljoin(_NEUROVAULT_COLLECTIONS_URL,
-                        '{}/images/'.format(collection['id']))
+                        '{0}/images/'.format(collection['id']))
         images = _scroll_server_results(
             query, query_terms=self.image_terms_,
             local_filter=self.image_filter_,
-            prefix_msg='scroll images from collection {}: '.format(
+            prefix_msg='scroll images from collection {0}: '.format(
                 collection['id']),
             batch_size=self.batch_size_)
         while True:
@@ -2372,17 +2385,17 @@ class _ServerDataScroller(object):
             except Exception:
                 fails_in_collection += 1
                 _logger.exception(
-                    '_scroll_collection: bad image: {}'.format(image))
+                    '_scroll_collection: bad image: {0}'.format(image))
                 self._failed_download()
             if fails_in_collection == self.max_fails_in_collection_:
-                _logger.error('too many bad images in collection {}:  '
-                              '{} bad images'.format(
+                _logger.error('too many bad images in collection {0}:  '
+                              '{1} bad images'.format(
                                   collection['id'], fails_in_collection))
                 return
 
         _logger.info(
             'on neurovault.org: '
-            '{} image{} matched query in collection {}'.format(
+            '{0} image{1} matched query in collection {2}'.format(
                 (n_im_in_collection if n_im_in_collection else 'no'),
                 ('s' if n_im_in_collection > 1 else ''), collection['id']))
 
@@ -2465,7 +2478,7 @@ class _ServerDataScroller(object):
             except StopIteration:
                 break
             except Exception:
-                _logger.exception('scroll: bad collection: {}'.format(
+                _logger.exception('scroll: bad collection: {0}'.format(
                     collection))
                 self._failed_download()
                 good_collection = False
@@ -2606,10 +2619,10 @@ def _scroll_local_data(neurovault_dir,
 def _split_terms(terms, available_on_server):
     """Isolate term filters that can be applied by server."""
     terms_ = dict(terms)
-    server_terms = {k: terms_.pop(k) for k in
-                    available_on_server if k in terms_ and
-                    (isinstance(terms_[k], _basestring) or
-                     isinstance(terms_[k], int))}
+    server_terms = dict([(k, terms_.pop(k)) for k in
+                         available_on_server if k in terms_ and
+                         (isinstance(terms_[k], _basestring) or
+                          isinstance(terms_[k], int))])
     return terms_, server_terms
 
 
@@ -2727,7 +2740,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
     if mode not in ['overwrite', 'download_new', 'offline']:
         raise ValueError(
             'supported modes are overwrite,'
-            ' download_new, offline; got {}'.format(mode))
+            ' download_new, offline; got {0}'.format(mode))
     image_ids, collection_ids = set(), set()
     if mode == 'overwrite':
         local_data = tuple()
@@ -2748,7 +2761,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
                 collection_ids.add(collection['id'])
                 yield image, collection
 
-        _logger.debug('{} image{} found on local disk'.format(
+        _logger.debug('{0} image{1} found on local disk'.format(
             ('No' if not len(image_ids) else len(image_ids)),
             ('s' if len(image_ids) > 1 else '')))
     if mode == 'offline':
@@ -2798,7 +2811,7 @@ def basic_image_terms():
 
     """
     return {'not_mni': False, 'is_valid': True, 'is_thresholded': False,
-            'map_type': IsIn({'F map', 'T map', 'Z map'}),
+            'map_type': IsIn(('F map', 'T map', 'Z map')),
             'id': NotIn(_KNOWN_BAD_IMAGE_IDS)}
 
 
@@ -3120,7 +3133,7 @@ def _absolute_paths_incorrect():
         bad_paths = cursor.fetchall()
         if bad_paths:
             return True
-    except Exception as e:
+    except Exception:
         return True
 
     return False
@@ -3305,7 +3318,7 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
                            fontsize='x-large', **kwargs):
     """Helper function for ``plot_fields_occurrences``"""
     if ax is None:
-        fig = plt.figure()
+        fig = mpl.pyplot.figure()
         ax = fig.gca()
     width = .8
     name_freq = [(name, info[1]) for (name, info) in keys.items()]
@@ -3321,11 +3334,11 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
 
 def _prepare_subplots_fields_occurrences():
     """Helper function for ``plot_fields_occurrences``"""
-    gs_im = GridSpec(1, 1, bottom=.7, top=.95)
-    gs_col = GridSpec(1, 1, bottom=.3, top=.5)
-    ax_im = plt.subplot(gs_im[:])
+    gs_im = mpl.gridspec.GridSpec(1, 1, bottom=.7, top=.95)
+    gs_col = mpl.gridspec.GridSpec(1, 1, bottom=.3, top=.5)
+    ax_im = mpl.pyplot.subplot(gs_im[:])
     ax_im.set_title('image fields', fontsize='xx-large')
-    ax_col = plt.subplot(gs_col[:])
+    ax_col = mpl.pyplot.subplot(gs_col[:])
     ax_col.set_title('column fields', fontsize='xx-large')
     return ax_im, ax_col
 
@@ -3352,7 +3365,7 @@ def _filter_field_names(required_fields, ref_fields):
             filtered[field_name] = ref_fields[field_name]
         else:
             _logger.warning(
-                'rejecting unknown column name: {}'.format(field_name))
+                'rejecting unknown column name: {0}'.format(field_name))
     return filtered
 
 
@@ -3363,14 +3376,14 @@ def _get_columns_string(required_fields, ref_fields):
     a predetermined set of strings are inserted in this string.
 
     """
-    fields = ['{} {}'.format(n, v) for
+    fields = ['{0} {1}'.format(n, v) for
               n, v in _filter_field_names(required_fields, ref_fields).items()]
     return ', '.join(fields)
 
 
 def _get_insert_string(table_name, fields):
     """Prepare an SQL INSERT INTO statement."""
-    return "INSERT INTO {} ({}) VALUES ({})".format(
+    return "INSERT INTO {0} ({1}) VALUES ({2})".format(
         table_name,
         ', '.join(fields),
         ('?, ' * len(fields))[:-2])
@@ -3378,8 +3391,8 @@ def _get_insert_string(table_name, fields):
 
 def _get_update_string(table_name, fields):
     """Prepare an SQL UPDATE statement."""
-    set_str = ','.join(["{}=:{}".format(field, field) for field in fields])
-    return "UPDATE {} SET {} WHERE id=:id".format(table_name, set_str)
+    set_str = ','.join(["{0}=:{0}".format(field) for field in fields])
+    return "UPDATE {0} SET {1} WHERE id=:id".format(table_name, set_str)
 
 
 def _table_exists(cursor, table_name):
@@ -3436,7 +3449,7 @@ def close_database_connection(log_fun=_logger.info):
             'committed changes to local database and closed connection')
     except (AttributeError, sqlite3.ProgrammingError):
         pass
-    except Exception as e:
+    except Exception:
         _logger.exception()
     local_database_connection.connection_ = None
 
@@ -3472,11 +3485,11 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
     if(col_columns):
         col_columns = ', ' + col_columns
     im_command = ("""CREATE TABLE images
-    (id INTEGER PRIMARY KEY, collection_id INTEGER {},
+    (id INTEGER PRIMARY KEY, collection_id INTEGER {0},
     FOREIGN KEY(collection_id) REFERENCES collections(id))""".format(
         im_columns))
     col_command = ("""CREATE TABLE collections
-    (id INTEGER PRIMARY KEY{})""".format(col_columns))
+    (id INTEGER PRIMARY KEY{0})""".format(col_columns))
     cursor = cursor.execute(col_command)
     cursor = cursor.execute(im_command)
     try:
@@ -3487,7 +3500,7 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
             KNOWN_BAD_COL_ID(collection_id)=0 AND
             KNOWN_BAD_IM_ID(id)=0""")
     except sqlite3.OperationalError:
-        _logger.debug("Failed to create 'valid_images' view: {}".format(
+        _logger.debug("Failed to create 'valid_images' view: {0}".format(
             traceback.format_exc()))
     cursor.connection.commit()
     return cursor
@@ -3508,11 +3521,11 @@ def table_info(cursor, table_name):
         """SELECT sql FROM sqlite_master WHERE
         tbl_name=? AND type='table'""", (table_name,))
     table_statement = cursor.fetchone()[0]
-    m = re.match(r"\s*CREATE\s+TABLE\s+{}\s*\((.*)\)$".format(table_name),
+    m = re.match(r"\s*CREATE\s+TABLE\s+{0}\s*\((.*)\)$".format(table_name),
                  table_statement, re.IGNORECASE | re.DOTALL | re.MULTILINE)
     if not m:
         _logger.error('table_info: could not find column names '
-                      'for table {}'.format(table_name))
+                      'for table {0}'.format(table_name))
         return None
     info = m.group(1)
     columns = re.match(r'(.*?)(,\s*FOREIGN.*)?$', info,

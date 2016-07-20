@@ -12,8 +12,6 @@ import numpy as np
 import scipy
 import nibabel as nb
 
-from nilearn import plotting
-from nilearn.image import mean_img
 from nilearn.datasets import neurovault as nv
 
 
@@ -41,25 +39,30 @@ def print_title(title):
 
 print_title("Paradigms we've downloaded:")
 for im in images:
-    print("{:>10} : {:<}".format(im['id'],
-                                 im['cognitive_paradigm_cogatlas']))
+    print("{0:>10} : {1:<}".format(im['id'],
+                                   im['cognitive_paradigm_cogatlas']))
 
 print_title("Contrast definitions for downloaded images:")
 for cd in np.unique([im['contrast_definition'] for im in images]):
-    print("{:>10}{}".format("", cd))
+    print("{0:>10}{1}".format("", cd))
 
 
 ######################################################################
 # Visualize the data
 
+from nilearn import plotting
+
 print('\nPreparing plots for fetched images...')
 for im in images:
     plotting.plot_glass_brain(im['absolute_path'],
-                              title='image {}'.format(im['id']))
+                              title='image {0}'.format(im['id']))
 print("Done")
 
 ######################################################################
 # Compute statistics
+
+
+from nilearn.image import mean_img
 
 
 def t_to_z(t_scores, deg_of_freedom):
@@ -76,7 +79,7 @@ ids = set()
 print("\nComputing maps...")
 for collection in [col for col in collections
                    if not(col['id'] in ids or ids.add(col['id']))]:
-    print_title("Collection {}:".format(collection['id']))
+    print_title("Collection {0}:".format(collection['id']))
 
     # convert t to z
     cur_imgs = [im for im in images if im['collection_id'] == collection['id']]
@@ -85,7 +88,7 @@ for collection in [col for col in collections
         # Load and validate the downloaded image.
         nii = nb.load(im['absolute_path'])
         deg_of_freedom = im['number_of_subjects'] - 2
-        print("{:>10}Image {:>4}: degrees of freedom: {}".format(
+        print("{0:>10}Image {1:>4}: degrees of freedom: {2}".format(
             "", im['id'], deg_of_freedom))
 
         # Convert data, create new image.
@@ -97,7 +100,7 @@ for collection in [col for col in collections
 
     mean_map = mean_img(image_z_niis)
     plotting.plot_glass_brain(
-        mean_map, title="Collection {} mean map".format(collection['id']))
+        mean_map, title="Collection {0} mean map".format(collection['id']))
     mean_maps.append(mean_map)
 
 
@@ -113,7 +116,7 @@ def z_map(z_data, affine):
 z_map(z_datas, mean_maps[0].get_affine())
 
 # Fisher's z-score on combined maps
-z_input_datas = [nii.get_data() for nii in mean_maps]
+z_input_datas = [mean_nii.get_data() for mean_nii in mean_maps]
 z_map(z_input_datas, mean_maps[0].get_affine())
 
 plotting.show()
