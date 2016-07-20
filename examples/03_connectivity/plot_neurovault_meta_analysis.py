@@ -12,8 +12,6 @@ import numpy as np
 import scipy
 import nibabel as nb
 
-from nilearn import plotting
-from nilearn.image import mean_img
 from nilearn.datasets import neurovault as nv
 
 
@@ -52,6 +50,8 @@ for cd in np.unique([im['contrast_definition'] for im in images]):
 ######################################################################
 # Visualize the data
 
+from nilearn import plotting
+
 print('\nPreparing plots for fetched images...')
 for im in images:
     plotting.plot_glass_brain(im['absolute_path'],
@@ -60,6 +60,9 @@ print("Done")
 
 ######################################################################
 # Compute statistics
+
+
+from nilearn.image import mean_img
 
 
 def t_to_z(t_scores, deg_of_freedom):
@@ -113,7 +116,7 @@ def z_map(z_data, affine):
 z_map(z_datas, mean_maps[0].get_affine())
 
 # Fisher's z-score on combined maps
-z_input_datas = [nii.get_data() for nii in mean_maps]
+z_input_datas = [mean_nii.get_data() for mean_nii in mean_maps]
 z_map(z_input_datas, mean_maps[0].get_affine())
 
 plotting.show()

@@ -19,11 +19,10 @@ import numpy as np
 from scipy import stats
 from sklearn.decomposition import FastICA
 
-from nilearn.datasets import neurovault as nv, load_mni152_brain_mask
+from nilearn.datasets import neurovault as nv
 from nilearn.image import new_img_like
-from nilearn.input_data import NiftiMasker
 from nilearn._utils import check_niimg
-from nilearn import plotting
+
 
 warnings.simplefilter('error', RuntimeWarning)  # Catch numeric issues in imgs
 warnings.simplefilter('ignore', DeprecationWarning)
@@ -67,6 +66,9 @@ for term_idx in np.argsort(total_scores)[-10:][::-1]:
 ######################################################################
 # Reshape and mask images
 
+from nilearn.datasets import load_mni152_brain_mask
+from nilearn.input_data import NiftiMasker
+
 print("\nReshaping and masking images.\n")
 
 mask_img = load_mni152_brain_mask()
@@ -108,6 +110,8 @@ print('Done, plotting results.')
 
 ######################################################################
 # Generate figures
+
+from nilearn import plotting
 
 plotting.img_plotting.matplotlib.pyplot.rcParams[
     'figure.max_open_warning'] = n_components + 2

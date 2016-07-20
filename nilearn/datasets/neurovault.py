@@ -563,7 +563,7 @@ def _get_batch(query, prefix_msg=''):
         prefix_msg, query))
     try:
         resp = opener.open(request)
-    except URLError as e:
+    except URLError:
         _logger.exception(
             'could not download batch from {0}'.format(query))
         raise
