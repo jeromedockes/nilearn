@@ -3315,7 +3315,7 @@ def _which_keys_are_unused(max_images=None):
 
 
 def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
-                           fontsize='x-large', **kwargs):
+                           fontsize=20, **kwargs):
     """Helper function for ``plot_fields_occurrences``"""
     if ax is None:
         fig = mpl.pyplot.figure()
@@ -3326,27 +3326,47 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
     name = np.asarray(name)
     freq = np.asarray(freq)
     order = np.argsort(freq)
-    ax.bar(range(len(name)), freq[order][::-1], width)
+    ax.bar(range(len(name)), freq[order][::-1], width,
+           color='skyblue', linewidth=2, edgecolor='b',
+           zorder=3)
     ax.set_xticks(np.arange(len(name)) + width / 2)
     ax.set_xticklabels(name[order][::-1], rotation=txt_rotation,
                        fontsize=fontsize, **kwargs)
+    ax.set_yticks(list(ax.get_yticks()) + [freq[order][-1]])
+    ax.grid(zorder=0, axis='y')
+    ax.tick_params(axis='y', labelsize=20)
+    ax.set_ylim((0, int(1.1 * max(freq))))
 
 
 def _prepare_subplots_fields_occurrences():
     """Helper function for ``plot_fields_occurrences``"""
-    gs_im = mpl.gridspec.GridSpec(1, 1, bottom=.7, top=.95)
-    gs_col = mpl.gridspec.GridSpec(1, 1, bottom=.3, top=.5)
-    ax_im = mpl.pyplot.subplot(gs_im[:])
-    ax_im.set_title('image fields', fontsize='xx-large')
-    ax_col = mpl.pyplot.subplot(gs_col[:])
-    ax_col.set_title('column fields', fontsize='xx-large')
-    return ax_im, ax_col
+    fig = mpl.pyplot.figure(figsize=(50,30))
+    gs_im = mpl.gridspec.GridSpec(
+        1, 1, bottom=.675, top=.9, left=.05, right=.98)
+    gs_col = mpl.gridspec.GridSpec(
+        1, 1, bottom=.225, top=.45, left=.05, right=.98)
+    ax_im = fig.add_subplot(gs_im[:])
+    ax_im.set_title('images metadata', fontsize=32)
+    ax_col = fig.add_subplot(gs_col[:])
+    ax_col.set_title('collections metadata', fontsize=32)
+    for ax in (ax_im, ax_col):
+        ax.set_ylabel('# times specified', fontsize=32, labelpad=30)
+    return fig
 
 
 def plot_fields_occurrences(max_images=300, **kwargs):
     """Draw a histogram of how often metadata fields are filled."""
     all_keys = _get_all_neurovault_keys(max_images)
-    axis_arr = _prepare_subplots_fields_occurrences()
+    if not len(all_keys):
+        return None
+    n_im = max([n for t, n in all_keys[0].values()])
+    n_coll = max([n for t, n in all_keys[1].values()])
+    fig = _prepare_subplots_fields_occurrences()
+    fig.suptitle(
+        'Showing how many of {0} collections and {1} images '
+        'specify a non-null value for each metadata field'.format(
+            n_coll, n_im), fontsize=37)
+    axis_arr = fig.get_axes()
     for table, ax in zip(all_keys, axis_arr):
         _fields_occurences_bar(table, ax=ax, **kwargs)
 
