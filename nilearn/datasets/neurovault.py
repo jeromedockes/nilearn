@@ -510,7 +510,9 @@ def _get_encoding(resp):
 
     """
     try:
-        return resp.headers.get_content_charset()
+        charset = resp.headers.get_content_charset()
+        if charset is not None:
+            return charset
     except AttributeError:
         pass
     content_type = resp.headers.get('Content-Type', '')
@@ -565,14 +567,14 @@ def _get_batch(query, prefix_msg=''):
         resp = opener.open(request)
     except URLError:
         _logger.exception(
-            'could not download batch from {0}'.format(query))
+            'Could not download batch from {0}'.format(query))
         raise
     try:
         encoding = _get_encoding(resp)
         content = resp.read()
         batch = json.loads(content.decode(encoding))
     except(URLError, ValueError):
-        _logger.exception('could not decypher batch from {0}'.format(query))
+        _logger.exception('Could not decypher batch from {0}'.format(query))
         raise
     finally:
         resp.close()
@@ -580,7 +582,7 @@ def _get_batch(query, prefix_msg=''):
         batch = {'count': 1, 'results': [batch]}
     for key in ['results', 'count']:
         if batch.get(key) is None:
-            msg = ('could not find required key "{0}" '
+            msg = ('Could not find required key "{0}" '
                    'in batch retrieved from {1}'.format(key, query))
             _logger.error(msg)
             raise ValueError(msg)
@@ -773,7 +775,7 @@ class _OrderComp(_SpecialValue):
     def __eq__(self, other):
         try:
             return self._eq_impl(self._cast(other))
-        except TypeError:
+        except (TypeError, ValueError):
             return False
 
 
@@ -1237,12 +1239,12 @@ def _simple_download(url, target_file, temp_dir):
     here we replace it with an ``URLError``.
 
     """
-    _logger.debug('downloading file: {0}'.format(url))
+    _logger.debug('Downloading file: {0}'.format(url))
     try:
         downloaded = _fetch_file(url, temp_dir, resume=False,
                                  overwrite=True, verbose=0)
     except Exception as e:
-        _logger.error('problem downloading file from {0}'.format(url))
+        _logger.error('Problem downloading file from {0}'.format(url))
 
         # reason is a property of urlib.error.HTTPError objects,
         # but these objects don't have a setter for it, so
@@ -1256,7 +1258,7 @@ def _simple_download(url, target_file, temp_dir):
         raise
     shutil.move(downloaded, target_file)
     _logger.debug(
-        'download succeeded, downloaded to: {0}'.format(target_file))
+        'Download succeeded, downloaded to: {0}'.format(target_file))
     return target_file
 
 
@@ -1321,8 +1323,8 @@ def neurovault_directory(suggested_dir=None):
     if getattr(neurovault_directory, 'directory_path_', None) is not None:
         return neurovault_directory.directory_path_
 
-    _logger.debug('looking for neurovault directory')
     close_database_connection()
+    _logger.debug('Looking for Neurovault directory.')
     if suggested_dir is None:
         root_data_dir, dataset_name = None, 'neurovault'
     else:
@@ -1332,6 +1334,8 @@ def neurovault_directory(suggested_dir=None):
     neurovault_directory.directory_path_ = _checked_get_dataset_dir(
         dataset_name, root_data_dir)
     assert(neurovault_directory.directory_path_ is not None)
+    _logger.debug('Found Neurovault directory in {0}'.format(
+        neurovault_directory.directory_path_))
     if _absolute_paths_incorrect():
         refresh_db()
     return neurovault_directory.directory_path_
@@ -1365,6 +1369,8 @@ def set_neurovault_directory(new_neurovault_dir=None):
     _checked_get_dataset_dir
 
     """
+    _logger.debug('Set neurovault directory: {0}...'.format(
+        new_neurovault_dir))
     neurovault_directory.directory_path_ = None
     return neurovault_directory(new_neurovault_dir)
 
@@ -1380,7 +1386,9 @@ def neurovault_metadata_db_path():
         except EnvironmentError as error:
             if errno.errorcode[error.errno] not in ['EPERM', 'EACCES']:
                 raise
-            _logger.warning('Could not create database: no write access')
+            msg = 'Could not create database: no write access.'
+            _logger.warning(msg)
+            warnings.warn(msg)
     return db_path
 
 
@@ -1455,7 +1463,7 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     sklearn.feature_extraction.DictVectorizer
 
     """
-    _logger.info('computing word features')
+    _logger.info('Computing word features.')
     words = []
     voc_empty = True
     for file_name in word_files:
@@ -1467,17 +1475,17 @@ def neurosynth_words_vectorized(word_files, **kwargs):
                     voc_empty = False
         except Exception:
             _logger.warning(
-                'could not load words from file {0}; error: {1}'.format(
+                'Could not load words from file {0}; error: {1}'.format(
                     file_name, traceback.format_exc()))
             words.append({})
     if voc_empty:
         _logger.warning('No word weight could be loaded, '
-                        'vectorizing Neurosynth words failed')
+                        'vectorizing Neurosynth words failed.')
         return None, None
     vectorizer = DictVectorizer(**kwargs)
     frequencies = vectorizer.fit_transform(words).toarray()
     vocabulary = np.asarray(vectorizer.feature_names_)
-    _logger.info('computing word features done; vocabulary size: {0}'.format(
+    _logger.info('Computing word features done; vocabulary size: {0}'.format(
         vocabulary.size))
     return frequencies, vocabulary
 
@@ -1794,7 +1802,7 @@ class DownloadManager(BaseDownloadManager):
                     ns_words_absolute_path, self.temp_dir_)
             except(URLError, ValueError) as e:
                 _logger.exception(
-                    'could not fetch words for image {0}'.format(
+                    'Could not fetch words for image {0}'.format(
                         image_info['id']))
                 self.neurosynth_error_handler_(e)
                 return
@@ -1865,7 +1873,7 @@ class DownloadManager(BaseDownloadManager):
         _write_metadata(image_info, metadata_file_path)
         # self.already_downloaded_ is incremented only after
         # this routine returns successfully.
-        _logger.info('already fetched {0} image{1}'.format(
+        _logger.info('Already fetched {0} image{1}.'.format(
             self.already_downloaded_ + 1,
             ('s' if self.already_downloaded_ + 1 > 1 else '')))
         return image_info
@@ -2102,7 +2110,7 @@ class SQLiteDownloadManager(DownloadManager):
 
         """
         super(SQLiteDownloadManager, self).start()
-        _logger.debug('starting download manager')
+        _logger.debug('Starting download manager.')
         self.connection_ = local_database_connection()
         self.cursor_ = local_database_cursor()
         self._update_schema()
@@ -2130,7 +2138,7 @@ class SQLiteDownloadManager(DownloadManager):
             existing_col_names = existing_columns.keys()
             for col_name in set(col_names).difference(existing_col_names):
                 _logger.warning(
-                    'adding column "{0}" to existing table "{1}"'.format(
+                    'Adding column "{0}" to existing table "{1}"'.format(
                         col_name, table))
                 col_str = _get_columns_string([col_name], ref_names)
                 self.cursor_.execute(
@@ -2138,8 +2146,8 @@ class SQLiteDownloadManager(DownloadManager):
             col_names_to_add = set(existing_col_names).difference(col_names)
             if col_names_to_add:
                 _logger.info(
-                    'also storing in database values for '
-                    'previously existing columns: {0} in table {1}'.format(
+                    'Also storing in database values for '
+                    'previously existing columns: {0} in table "{1}".'.format(
                         ', '.join(col_names_to_add), table))
             col_names.update(dict([(name, existing_columns[name]) for
                                    name in col_names_to_add]))
@@ -2152,6 +2160,7 @@ class SQLiteDownloadManager(DownloadManager):
         Commit changes and close database connection.
 
         """
+        _logger.debug('Closing download manager.')
         super(SQLiteDownloadManager, self).finish()
         if self.connection_ is None:
             return
@@ -2329,8 +2338,8 @@ class _ServerDataScroller(object):
     def _failed_download(self):
         self.consecutive_fails_ += 1
         if self.consecutive_fails_ == self.max_consecutive_fails_:
-            _logger.error('too many failed downloads: {}; '
-                          'stop scrolling remote data'.format(
+            _logger.error('Too many failed downloads: {}; '
+                          'stop scrolling remote data.'.format(
                               self.consecutive_fails_))
             raise RuntimeError(
                 '{0} consecutive bad downloads'.format(
@@ -2366,7 +2375,7 @@ class _ServerDataScroller(object):
         images = _scroll_server_results(
             query, query_terms=self.image_terms_,
             local_filter=self.image_filter_,
-            prefix_msg='scroll images from collection {0}: '.format(
+            prefix_msg='Scroll images from collection {0}: '.format(
                 collection['id']),
             batch_size=self.batch_size_)
         while True:
@@ -2388,13 +2397,13 @@ class _ServerDataScroller(object):
                     '_scroll_collection: bad image: {0}'.format(image))
                 self._failed_download()
             if fails_in_collection == self.max_fails_in_collection_:
-                _logger.error('too many bad images in collection {0}:  '
-                              '{1} bad images'.format(
+                _logger.error('Too many bad images in collection {0}:  '
+                              '{1} bad images.'.format(
                                   collection['id'], fails_in_collection))
                 return
 
         _logger.info(
-            'on neurovault.org: '
+            'On neurovault.org: '
             '{0} image{1} matched query in collection {2}'.format(
                 (n_im_in_collection if n_im_in_collection else 'no'),
                 ('s' if n_im_in_collection > 1 else ''), collection['id']))
@@ -2465,7 +2474,7 @@ class _ServerDataScroller(object):
         collections = _scroll_server_results(
             _NEUROVAULT_COLLECTIONS_URL, query_terms=self.collection_terms_,
             local_filter=self.collection_filter_,
-            prefix_msg='scroll collections: ', batch_size=self.batch_size_)
+            prefix_msg='Scroll collections: ', batch_size=self.batch_size_)
 
         while True:
             collection = None
@@ -2745,7 +2754,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
     if mode == 'overwrite':
         local_data = tuple()
     else:
-        _logger.debug('reading local neurovault data')
+        _logger.debug('Reading local neurovault data.')
         local_data = _scroll_local_data(
             neurovault_dir, collection_terms, collection_filter,
             image_terms, image_filter, wanted_collection_ids,
@@ -2761,7 +2770,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
                 collection_ids.add(collection['id'])
                 yield image, collection
 
-        _logger.debug('{0} image{1} found on local disk'.format(
+        _logger.debug('{0} image{1} found on local disk.'.format(
             ('No' if not len(image_ids) else len(image_ids)),
             ('s' if len(image_ids) > 1 else '')))
     if mode == 'offline':
@@ -2769,7 +2778,7 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
     if max_images is not None and len(image_ids) >= max_images:
         return
 
-    _logger.debug('reading server neurovault data')
+    _logger.debug('Reading server neurovault data.')
     server_data = _ServerDataScroller(collection_terms, collection_filter,
                                       image_terms, image_filter,
                                       collection_ids, image_ids,
@@ -2781,8 +2790,8 @@ def _join_local_and_remote(neurovault_dir, mode='download_new',
         except StopIteration:
             return
         except Exception:
-            _logger.exception('downloading data from server stopped early')
-            warnings.warn('downloading data from Neurovault stopped early')
+            _logger.exception('Downloading data from server stopped early.')
+            warnings.warn('Downloading data from Neurovault stopped early.')
             return
         yield image, collection
 
@@ -3117,6 +3126,9 @@ def _absolute_paths_incorrect():
     e.g. a USB drive.
 
     """
+    _logger.debug('Checking absolute paths.')
+    msg = 'No bad paths were found.'
+    bad_paths_msg = 'Some bad paths were found or paths are missing'
     try:
         cursor = local_database_cursor()
         cursor.execute(
@@ -3125,6 +3137,7 @@ def _absolute_paths_incorrect():
             (os.path.join(neurovault_directory(), '%'), ))
         bad_paths = cursor.fetchall()
         if bad_paths:
+            msg = bad_paths_msg
             return True
         cursor.execute(
             """SELECT absolute_path FROM images WHERE
@@ -3132,9 +3145,14 @@ def _absolute_paths_incorrect():
             (os.path.join(neurovault_directory(), 'collection_%'), ))
         bad_paths = cursor.fetchall()
         if bad_paths:
+            msg = bad_paths_msg
             return True
     except Exception:
+        msg = bad_paths_msg
         return True
+    finally:
+        _logger.debug(msg)
+        close_database_connection(_logger.debug)
 
     return False
 
@@ -3155,13 +3173,14 @@ def refresh_db(**kwargs):
     """
     if not os.access(neurovault_metadata_db_path(), os.W_OK):
         return
-    _logger.debug('refreshing local database')
+    _logger.debug('Refreshing local database.')
     download_manager = SQLiteDownloadManager(
         neurovault_data_dir=neurovault_directory(), **kwargs)
     fetch_neurovault(image_terms={}, collection_terms={},
                      download_manager=download_manager,
                      mode='offline', fetch_neurosynth_words=True,
                      vectorize_words=False, max_images=None)
+    _logger.debug('Removing unexisting images from database.')
     connection = local_database_cursor()
     connection.execute(
         """DELETE FROM collections WHERE
@@ -3171,6 +3190,7 @@ def refresh_db(**kwargs):
         """DELETE FROM images WHERE
         NOT ISFILE(absolute_path) OR absolute_path NOT LIKE ?""",
         (os.path.join(neurovault_directory(), 'collection_%'), ))
+    close_database_connection(_logger.debug)
 
 
 def recompute_db(**kwargs):
@@ -3184,6 +3204,8 @@ def recompute_db(**kwargs):
     SQLiteDownloadManager
 
     """
+    if not os.access(neurovault_metadata_db_path(), os.W_OK):
+        return
     try:
         read_sql_query("DROP TABLE images")
     except sqlite3.OperationalError:
@@ -3340,7 +3362,7 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
 
 def _prepare_subplots_fields_occurrences():
     """Helper function for ``plot_fields_occurrences``"""
-    fig = mpl.pyplot.figure(figsize=(50,30))
+    fig = mpl.pyplot.figure(figsize=(50, 30))
     gs_im = mpl.gridspec.GridSpec(
         1, 1, bottom=.675, top=.9, left=.05, right=.98)
     gs_col = mpl.gridspec.GridSpec(
@@ -3385,7 +3407,7 @@ def _filter_field_names(required_fields, ref_fields):
             filtered[field_name] = ref_fields[field_name]
         else:
             _logger.warning(
-                'rejecting unknown column name: {0}'.format(field_name))
+                'Rejecting unknown column name: "{0}"'.format(field_name))
     return filtered
 
 
@@ -3440,6 +3462,7 @@ def local_database_connection():
     if getattr(local_database_connection, 'connection_', None) is not None:
         return local_database_connection.connection_
     db_path = neurovault_metadata_db_path()
+    _logger.debug('Opening connection to local Neurovault database.')
     local_database_connection.connection_ = sqlite3.connect(db_path)
     local_database_connection.connection_.row_factory = sqlite3.Row
     local_database_connection.connection_.create_function("LEN", 1, _get_len)
@@ -3470,7 +3493,7 @@ def close_database_connection(log_fun=_logger.info):
     except (AttributeError, sqlite3.ProgrammingError):
         pass
     except Exception:
-        _logger.exception()
+        _logger.exception('Error closing database connection.')
     local_database_connection.connection_ = None
 
 
@@ -3540,7 +3563,10 @@ def table_info(cursor, table_name):
     cursor.execute(
         """SELECT sql FROM sqlite_master WHERE
         tbl_name=? AND type='table'""", (table_name,))
-    table_statement = cursor.fetchone()[0]
+    resp = cursor.fetchone()
+    if resp is None:
+        return None
+    table_statement = resp[0]
     m = re.match(r"\s*CREATE\s+TABLE\s+{0}\s*\((.*)\)$".format(table_name),
                  table_statement, re.IGNORECASE | re.DOTALL | re.MULTILINE)
     if not m:
@@ -3625,6 +3651,8 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
     >>> print(list(data.keys())) # doctest: +SKIP
     ['image_id', 'image_path', 'collection_id', 'DOI']
     """
+    _logger.debug('Reading SQL query: {0} ***bindings: {1}'.format(
+        query, bindings))
     if curs is None:
         curs = local_database_cursor()
     try:

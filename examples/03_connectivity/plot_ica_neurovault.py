@@ -6,7 +6,8 @@ This example shows how to download statistical maps from
 NeuroVault, label them with NeuroSynth terms,
 and compute ICA components across all the maps.
 
-See :func:`nilearn.datasets.fetch_neurovault` documentation for more details.
+See :func:`nilearn.datasets.neurovault.fetch_neurovault`
+documentation for more details.
 
 """
 # Author: Ben Cipollini

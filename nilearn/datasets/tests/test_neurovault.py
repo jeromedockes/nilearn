@@ -1,4 +1,6 @@
 import os
+import warnings
+import stat
 try:
     from os.path import samefile
 except ImportError:
@@ -11,7 +13,11 @@ import re
 
 import numpy as np
 from nose import SkipTest
-from nose.tools import (assert_true, assert_false, assert_equal)
+from nose.tools import (assert_true, assert_false, assert_equal, assert_raises)
+try:
+    from nose.tools import assert_warns
+except ImportError:
+    assert_warns = None
 
 from nilearn.datasets import neurovault as nv
 
@@ -24,6 +30,18 @@ def _same_stat(path_1, path_2):
 
 if samefile is None:
     samefile = _same_stat
+
+
+def _verif_warn(warning_type, f, *args, **kwargs):
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        f(*args, **kwargs)
+        assert issubclass(w[0].category, warning_type)
+
+
+if assert_warns is None:
+    assert_warns = _verif_warn
+
 
 _EXAMPLE_IM_META = {
     "analysis_level": None,
@@ -112,13 +130,19 @@ nv.set_logging_level(nv.logging.DEBUG)
 
 
 class _TemporaryDirectory(object):
+    def __init__(self, set_nv_dir=True):
+        self.set_nv_dir_ = set_nv_dir
+
     def __enter__(self):
         self.temp_dir_ = tempfile.mkdtemp()
-        nv.set_neurovault_directory(self.temp_dir_)
+        if self.set_nv_dir_:
+            nv.set_neurovault_directory(self.temp_dir_)
         return self.temp_dir_
 
     def __exit__(self, *args):
-        nv.set_neurovault_directory(None)
+        if self.set_nv_dir_:
+            nv.set_neurovault_directory(None)
+        os.chmod(self.temp_dir_, stat.S_IWUSR | stat.S_IXUSR | stat.S_IRUSR)
         shutil.rmtree(self.temp_dir_)
 
 
@@ -139,6 +163,7 @@ def test_to_supported_type():
     assert_equal(nv._to_supported_type('abc'), 'abc')
     assert_equal(nv._to_supported_type({'a': 0}), json.dumps({'a': 0}))
     assert_equal(nv._to_supported_type(u'\u2019'), u'\u2019')
+    assert_equal(nv._to_supported_type(os), u'{0}'.format(os))
 
 
 def test_remove_none_strings():
@@ -200,6 +225,12 @@ def test_get_batch():
     batch = nv._get_batch(nv._NEUROVAULT_COLLECTIONS_URL)
     assert('results' in batch)
     assert('count' in batch)
+    assert_raises(nv.URLError, nv._get_batch, 'http://')
+    with _TemporaryDirectory(set_nv_dir=False) as temp_dir:
+        with open(os.path.join(temp_dir, 'test_nv.txt'), 'w'):
+            pass
+        assert_raises(ValueError, nv._get_batch, 'file://{0}'.format(
+            os.path.join(temp_dir, 'test_nv.txt')))
 
 
 @ignore_connection_errors
@@ -255,11 +286,18 @@ def test_NotEqual():
 
 def test_OrderComp():
     geq = nv.GreaterOrEqual('2016-07-12T11:29:12.263046Z')
-    assert_true('2016-08-12T11:29:12.263046Z') == geq
-    assert_true('2016-06-12T11:29:12.263046Z') != geq
+    assert_true('2016-08-12T11:29:12.263046Z' == geq)
+    assert_true('2016-06-12T11:29:12.263046Z' != geq)
+    gt = nv.GreaterThan('abc')
+    assert_false(gt == 'abc')
+    assert_true(gt == 'abd')
     lt = nv.LessThan(7)
     assert_false(7 == lt)
     assert_false(5 != lt)
+    assert_false(lt == 'a')
+    leq = nv.LessOrEqual(4.5)
+    assert_true(4.4 == leq)
+    assert_false(4.6 == leq)
 
 
 def test_IsIn():
@@ -291,6 +329,7 @@ def test_NotIn():
 
 def test_Contains():
     contains = nv.Contains('a', 0)
+    assert_false(contains == 10)
     assert_true(contains == ['b', 1, 'a', 0])
     assert_true(['b', 1, 'a', 0] == contains)
     assert_true(contains != ['b', 1, 0])
@@ -306,6 +345,7 @@ def test_Contains():
 
 def test_NotContains():
     not_contains = nv.NotContains('ab')
+    assert_true(None != not_contains)
     assert_true(not_contains == 'a_b')
     assert_true('bcd' == not_contains)
     assert_true(not_contains != '_abcd')
@@ -364,6 +404,8 @@ def test_ResultFilter():
     filter_1['d'] = nv.IsIn((0, 1))
     assert_true(filter_1({'c': 2, 'd': 1}))
     assert_false(filter_1({'c': 2, 'd': 2}))
+    del filter_1['d']
+    assert_true(filter_1({'c': 2, 'd': 2}))
     filter_1['d'] = nv.NotIn((0, 1))
     assert_false(filter_1({'c': 2, 'd': 1}))
     assert_true(filter_1({'c': 2, 'd': 3}))
@@ -414,18 +456,40 @@ def test_ResultFilter_combinations():
 # In the meanwhile, use _TemporaryDirectory
 @ignore_connection_errors
 def test_simple_download():
-    with _TemporaryDirectory() as temp_dir:
+    with _TemporaryDirectory(set_nv_dir=False) as temp_dir:
         downloaded_file = nv._simple_download(
             'http://neurovault.org/media/images/35/Fig3B_zstat1.nii.gz',
             os.path.join(temp_dir, 'image_35.nii.gz'), temp_dir)
         assert_true(os.path.isfile(downloaded_file))
+        assert_raises(nv.URLError, nv._simple_download,
+                      'http://', 'bad.nii.gz', temp_dir)
 
 
 def test_checked_get_dataset_dir():
-    with _TemporaryDirectory() as temp_dir:
+    with _TemporaryDirectory(set_nv_dir=False) as temp_dir:
         dataset_dir = nv._checked_get_dataset_dir('neurovault', temp_dir)
         assert_true(samefile(
             dataset_dir, os.path.join(temp_dir, 'neurovault')))
+        dataset_dir = nv._checked_get_dataset_dir(
+            'neurovault', temp_dir, write_required=True)
+        assert_true(samefile(
+            dataset_dir, os.path.join(temp_dir, 'neurovault')))
+        os.chmod(os.path.join(temp_dir, 'neurovault'), stat.S_IREAD)
+        dataset_dir = nv._checked_get_dataset_dir('neurovault', temp_dir)
+        assert_true(samefile(
+            dataset_dir, os.path.join(temp_dir, 'neurovault')))
+        assert_raises(IOError, nv._checked_get_dataset_dir,
+                      'neurovault', temp_dir, write_required=True)
+
+
+def test_neurovault_metadata_db_path():
+    with _TemporaryDirectory() as temp_dir:
+        os.remove(os.path.join(temp_dir, '.neurovault_metadata.db'))
+        assert_equal(nv.neurovault_metadata_db_path(),
+                     os.path.join(temp_dir, '.neurovault_metadata.db'))
+        os.remove(os.path.join(temp_dir, '.neurovault_metadata.db'))
+        os.chmod(temp_dir, stat.S_IREAD)
+        assert_warns(Warning, nv.neurovault_metadata_db_path)
 
 
 def test_neurovault_directory():
@@ -597,6 +661,13 @@ def test_json_add_im_files_paths():
         assert_true(loaded.get('neurosynth_words_relative_path') is None)
 
 
+@ignore_connection_errors
+def test_ServerDataScroller():
+    scroller = nv._ServerDataScroller(wanted_collection_ids=(35,))
+    for im, col in scroller.scroll():
+        assert_equal(col['id'], 35)
+
+
 def test_split_terms():
     terms, server_terms = nv._split_terms(
         {'DOI': nv.NotNull(), 'name': 'my_name', 'unknown_term': 'something'},
@@ -629,10 +700,15 @@ class TestDownloadManager(nv.BaseDownloadManager):
         raise nv.URLError('bad download')
 
 
+def test_join_local_and_remote():
+    assert_raises(ValueError, lambda: list(
+        nv._join_local_and_remote(nv.neurovault_directory(), 'bad_mode')))
+
+
 def test_fetch_neurovault_filtered():
-    with _TemporaryDirectory():
+    with _TemporaryDirectory() as temp_dir:
         data = nv.fetch_neurovault(max_images=1, fetch_neurosynth_words=True,
-                                   fetch_reduced_rep=True)
+                                   fetch_reduced_rep=True, mode='overwrite')
         if data is not None:
             assert_equal(len(data.images), 1)
             nv.show_neurovault_image_keys(max_images=1)
@@ -644,18 +720,36 @@ def test_fetch_neurovault_filtered():
             meta = data.images_meta[0]
             assert_false(meta['not_mni'])
             db_data = nv.read_sql_query(
-                'SELECT id, absolute_path FROM images WHERE id=?',
+                """SELECT id, absolute_path,
+                neurosynth_words_absolute_path FROM images WHERE id=?""",
                 (meta['id'],))
             assert_equal(db_data['absolute_path'][0], meta['absolute_path'])
+            db_rows = nv.read_sql_query(
+                "SELECT * FROM images", as_columns=False)
+            assert_equal(db_rows[0]['absolute_path'],
+                         db_data['absolute_path'][0])
+            assert_raises(ValueError, nv.read_sql_query,
+                          """SELECT images.id AS id,
+                          collections.id AS id FROM
+                          images INNER JOIN collections""")
             assert_false(nv._absolute_paths_incorrect())
             nv.read_sql_query("UPDATE images SET absolute_path='bad_path'")
             assert_true(nv._absolute_paths_incorrect())
             nv.refresh_db()
             assert_false(nv._absolute_paths_incorrect())
+            nv.read_sql_query("UPDATE collections SET absolute_path='bad'")
+            assert_true(nv._absolute_paths_incorrect())
+            nv.recompute_db()
+            assert_false(nv._absolute_paths_incorrect())
 
-            data = nv.fetch_neurovault(download_manager=TestDownloadManager(
-                max_images=2, neurovault_data_dir=nv.neurovault_directory()))
-            assert_equal(len(data['images']), 1)
+            assert_warns(
+                Warning, nv.fetch_neurovault,
+                download_manager=TestDownloadManager(
+                    max_images=2,
+                    neurovault_data_dir=nv.neurovault_directory()))
+
+        os.chmod(temp_dir, stat.S_IREAD)
+        assert_warns(Warning, nv.fetch_neurovault)
 
 
 def test_fetch_neurovault_explicit():
@@ -676,7 +770,21 @@ def test_move_col_id():
     assert_equal(im_terms, {'not_mni': False})
     assert_equal(col_terms, {'id': 1})
 
-    im_terms, col_terms = nv._move_col_id(
-        {'collection_id': 1, 'not_mni': False}, {'id': 2})
-    assert_equal(im_terms, {'not_mni': False, 'collection_id': 1})
-    assert_equal(col_terms, {'id': 2})
+    assert_warns(Warning, nv._move_col_id,
+                 {'collection_id': 1, 'not_mni': False}, {'id': 2})
+
+
+@ignore_connection_errors
+def test_plot_fields_occurrences_bar():
+    nv.plot_fields_occurrences(max_images=3)
+
+
+def test_filter_field_names():
+    assert_equal(nv._filter_field_names('a', {}), nv.OrderedDict())
+    assert_equal(nv._filter_field_names(('a-b',), {'a_b': 0}),
+                 nv.OrderedDict({'a_b': 0}))
+
+
+def test_get_len():
+    assert_equal(nv._get_len('abc'), 3)
+    assert_equal(nv._get_len(10), 0)

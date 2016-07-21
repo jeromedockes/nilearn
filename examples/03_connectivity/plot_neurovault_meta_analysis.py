@@ -5,7 +5,8 @@ NeuroVault meta-analysis of stop-go paradigm studies.
 This example shows how to download statistical maps from
 NeuroVault
 
-See `nilearn.datasets.neurovault` documentation for more details.
+See :func:`nilearn.datasets.neurovault.fetch_neurovault`
+documentation for more details.
 
 """
 import numpy as np
