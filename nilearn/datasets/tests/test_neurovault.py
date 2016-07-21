@@ -142,10 +142,14 @@ class _TemporaryDirectory(object):
     def __exit__(self, *args):
         if self.set_nv_dir_:
             nv.set_neurovault_directory(None)
+        os.chmod(self.temp_dir_, stat.S_IWUSR | stat.S_IXUSR | stat.S_IRUSR)
         for root, dirnames, filenames in os.walk(self.temp_dir_):
-            for name in dirnames + filenames:
+            for name in dirnames:
                 os.chmod(os.path.join(root, name),
                          stat.S_IWUSR | stat.S_IXUSR | stat.S_IRUSR)
+            for name in filenames:
+                os.chmod(os.path.join(root, name),
+                         stat.S_IWUSR | stat.S_IRUSR)
         shutil.rmtree(self.temp_dir_)
 
 
