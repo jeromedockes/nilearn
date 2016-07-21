@@ -3083,7 +3083,7 @@ def fetch_neurovault(max_images=100,
 
     neurovault_data_dir = neurovault_directory(neurovault_data_dir)
     if mode != 'offline' and not os.access(neurovault_data_dir, os.W_OK):
-        warnings.warn("You don't have write access to neurovault dir: {}; "
+        warnings.warn("You don't have write access to neurovault dir: {0}; "
                       "fetch_neurovault is working offline.".format(
                           neurovault_data_dir))
         mode = 'offline'
