@@ -75,7 +75,7 @@ from nilearn.input_data import NiftiMasker
 print("\nReshaping and masking images.\n")
 
 mask_img = load_mni152_brain_mask()
-masker = NiftiMasker(mask_img=mask_img, memory='nilearn_cache')
+masker = NiftiMasker(mask_img=mask_img, memory='nilearn_cache', memory_level=1)
 masker = masker.fit()
 
 # Images may fail to be transformed, and are of different shapes,
