@@ -1,43 +1,5 @@
-"""Download statistical maps available on Neurovault.
-
-Neurovault[1]_ is a public repository of unthresholded statistical
-maps, parcellations, and atlases of the human brain. You can read
-about it and browse the images it contains at www.neurovault.org.
-
-This module provides the function ``fetch_neurovault`` which can be
-used to download maps from neurovault, and also to access images saved
-on the local disk in later sessions.
-
-Additionally, it is possible to ask Neurosynth[2]_ to anotate the maps
-we have downloaded.  Neurosynth is a platform for large-scale,
-automated synthesis of fMRI data. It can be used to perform decoding,
-so ``fetch_neurovault`` offers the possibility to query Neurosynth and
-obtain a list of weighed terms for each downloaded image. You can find
-out more about Neurosynth at www.neurosynth.org.
-
-By default, the metadata for downloaded images is stored in an sqlite
-database, which is actually just a file on disk but can be queried
-like an SQL database using the standard library ``sqlite3`` module.
-This allows you to explore and use the data you have downloaded
-easily, using ``read_sql_query``, or directly using the connection
-returned by ``local_database_connection``. This is an alternative to
-``fetch_neurovault`` for accessing metadata for images which have been
-downloaded and saved on disk.
-
-References
-----------
-.. [1] Gorgolewski KJ, Varoquaux G, Rivera G, Schwartz Y, Ghosh SS,
-   Maumet C, Sochat VV, Nichols TE, Poldrack RA, Poline J-B, Yarkoni
-   T and Margulies DS (2015) NeuroVault.org: a web-based repository
-   for collecting and sharing unthresholded statistical maps of the
-   human brain. Front. Neuroinform. 9:8.  doi:
-   10.3389/fninf.2015.00008
-
-.. [2] Yarkoni, Tal, Russell A. Poldrack, Thomas E. Nichols, David
-   C. Van Essen, and Tor D. Wager. "Large-scale automated synthesis
-   of human functional neuroimaging data." Nature methods 8, no. 8
-   (2011): 665-670.
-
+"""
+Download statistical maps available on Neurovault (http://neurovault.org).
 """
 import os
 import logging
