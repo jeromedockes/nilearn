@@ -20,6 +20,9 @@ from .atlas import (fetch_atlas_craddock_2012, fetch_atlas_destrieux_2009,
                     fetch_atlas_basc_multiscale_2015,
                     fetch_coords_dosenbach_2010)
 from .utils import get_data_dirs
+from .neurovault import  (fetch_neurovault,
+                          set_neurovault_directory, neurovault_directory)
+from .neurovault import read_sql_query as neurovault_query
 
 __all__ = ['MNI152_FILE_PATH', 'fetch_icbm152_2009', 'load_mni152_template',
            'fetch_oasis_vbm',
@@ -35,4 +38,6 @@ __all__ = ['MNI152_FILE_PATH', 'fetch_icbm152_2009', 'load_mni152_template',
            'fetch_megatrawls_netmats', 'fetch_cobre',
            'fetch_atlas_basc_multiscale_2015', 'fetch_coords_dosenbach_2010',
            'load_mni152_brain_mask', 'fetch_icbm152_brain_gm_mask',
-           'get_data_dirs', 'neurovault']
+           'get_data_dirs', 'neurovault', 'fetch_neurovault',
+           'set_neurovault_directory', 'neurovault_directory',
+           'neurovault_query']

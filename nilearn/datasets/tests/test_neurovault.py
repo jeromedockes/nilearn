@@ -36,7 +36,10 @@ def _verif_warn(warning_type, f, *args, **kwargs):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter('always')
         f(*args, **kwargs)
-        assert issubclass(w[0].category, warning_type)
+        try:
+            assert issubclass(w[0].category, warning_type)
+        except IndexError:
+            raise AssertionError('Warning not raised by {0}'.format(f))
 
 
 if assert_warns is None:
@@ -482,6 +485,8 @@ def test_checked_get_dataset_dir():
         assert_true(samefile(
             dataset_dir, os.path.join(temp_dir, 'neurovault')))
         os.chmod(os.path.join(temp_dir, 'neurovault'), stat.S_IREAD)
+        if os.access(os.path.join(temp_dir, 'neurovault'), os.W_OK):
+            return
         dataset_dir = nv._checked_get_dataset_dir('neurovault', temp_dir)
         assert_true(samefile(
             dataset_dir, os.path.join(temp_dir, 'neurovault')))
@@ -496,6 +501,8 @@ def test_neurovault_metadata_db_path():
                      os.path.join(temp_dir, '.neurovault_metadata.db'))
         os.remove(os.path.join(temp_dir, '.neurovault_metadata.db'))
         os.chmod(temp_dir, stat.S_IREAD)
+        if os.access(temp_dir, os.W_OK):
+            return
         assert_warns(Warning, nv.neurovault_metadata_db_path)
 
 
@@ -756,6 +763,8 @@ def test_fetch_neurovault_filtered():
                     neurovault_data_dir=nv.neurovault_directory()))
 
         os.chmod(temp_dir, stat.S_IREAD)
+        if os.access(temp_dir, os.W_OK):
+            return
         assert_warns(Warning, nv.fetch_neurovault)
 
 

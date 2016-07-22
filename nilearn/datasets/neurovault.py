@@ -3128,7 +3128,7 @@ def _absolute_paths_incorrect():
     """
     _logger.debug('Checking absolute paths.')
     msg = 'No bad paths were found.'
-    bad_paths_msg = 'Some bad paths were found or paths are missing'
+    bad_paths_msg = 'Some bad paths were found or paths are missing.'
     try:
         cursor = local_database_cursor()
         cursor.execute(
@@ -3489,7 +3489,7 @@ def close_database_connection(log_fun=_logger.info):
         local_database_connection.connection_.commit()
         local_database_connection.connection_.close()
         log_fun(
-            'committed changes to local database and closed connection')
+            'Committed changes to local database and closed connection.')
     except (AttributeError, sqlite3.ProgrammingError):
         pass
     except Exception:
