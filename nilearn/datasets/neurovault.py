@@ -74,34 +74,6 @@ def _to_supported_type(obj):
         pass
     return u'{0}'.format(obj)
 
-_IMAGE_BASIC_FIELDS = OrderedDict()
-_IMAGE_BASIC_FIELDS['id'] = int
-_IMAGE_BASIC_FIELDS['name'] = _basestring
-_IMAGE_BASIC_FIELDS['relative_path'] = _basestring
-_IMAGE_BASIC_FIELDS['absolute_path'] = _basestring
-_IMAGE_BASIC_FIELDS['collection_id'] = int
-_IMAGE_BASIC_FIELDS['collection'] = _basestring
-_IMAGE_BASIC_FIELDS['add_date'] = _basestring
-_IMAGE_BASIC_FIELDS['modify_date'] = _basestring
-_IMAGE_BASIC_FIELDS['image_type'] = _basestring
-_IMAGE_BASIC_FIELDS['map_type'] = _basestring
-_IMAGE_BASIC_FIELDS['url'] = _basestring
-_IMAGE_BASIC_FIELDS['file'] = _basestring
-_IMAGE_BASIC_FIELDS['file_size'] = int
-_IMAGE_BASIC_FIELDS['is_thresholded'] = int
-_IMAGE_BASIC_FIELDS['is_valid'] = int
-_IMAGE_BASIC_FIELDS['modality'] = _basestring
-_IMAGE_BASIC_FIELDS['not_mni'] = int
-_IMAGE_BASIC_FIELDS['description'] = _basestring
-_IMAGE_BASIC_FIELDS['brain_coverage'] = float
-_IMAGE_BASIC_FIELDS['perc_bad_voxels'] = float
-_IMAGE_BASIC_FIELDS['perc_voxels_outside'] = float
-_IMAGE_BASIC_FIELDS['reduced_representation'] = _basestring
-_IMAGE_BASIC_FIELDS['reduced_representation_relative_path'] = _basestring
-_IMAGE_BASIC_FIELDS['reduced_representation_absolute_path'] = _basestring
-_IMAGE_BASIC_FIELDS['neurosynth_words_relative_path'] = _basestring
-_IMAGE_BASIC_FIELDS['neurosynth_words_absolute_path'] = _basestring
-
 
 def _translate_types_to_sql(fields_dict):
     """Translate values of a mapping from python to SQL storage classes.
@@ -134,6 +106,35 @@ def _translate_types_to_sql(fields_dict):
         k = re.sub(r'\W', '_', k)
         sql_fields[k] = _PY_TO_SQL_TYPE.get(v, '')
     return sql_fields
+
+
+_IMAGE_BASIC_FIELDS = OrderedDict()
+_IMAGE_BASIC_FIELDS['id'] = int
+_IMAGE_BASIC_FIELDS['name'] = _basestring
+_IMAGE_BASIC_FIELDS['relative_path'] = _basestring
+_IMAGE_BASIC_FIELDS['absolute_path'] = _basestring
+_IMAGE_BASIC_FIELDS['collection_id'] = int
+_IMAGE_BASIC_FIELDS['collection'] = _basestring
+_IMAGE_BASIC_FIELDS['add_date'] = _basestring
+_IMAGE_BASIC_FIELDS['modify_date'] = _basestring
+_IMAGE_BASIC_FIELDS['image_type'] = _basestring
+_IMAGE_BASIC_FIELDS['map_type'] = _basestring
+_IMAGE_BASIC_FIELDS['url'] = _basestring
+_IMAGE_BASIC_FIELDS['file'] = _basestring
+_IMAGE_BASIC_FIELDS['file_size'] = int
+_IMAGE_BASIC_FIELDS['is_thresholded'] = int
+_IMAGE_BASIC_FIELDS['is_valid'] = int
+_IMAGE_BASIC_FIELDS['modality'] = _basestring
+_IMAGE_BASIC_FIELDS['not_mni'] = int
+_IMAGE_BASIC_FIELDS['description'] = _basestring
+_IMAGE_BASIC_FIELDS['brain_coverage'] = float
+_IMAGE_BASIC_FIELDS['perc_bad_voxels'] = float
+_IMAGE_BASIC_FIELDS['perc_voxels_outside'] = float
+_IMAGE_BASIC_FIELDS['reduced_representation'] = _basestring
+_IMAGE_BASIC_FIELDS['reduced_representation_relative_path'] = _basestring
+_IMAGE_BASIC_FIELDS['reduced_representation_absolute_path'] = _basestring
+_IMAGE_BASIC_FIELDS['neurosynth_words_relative_path'] = _basestring
+_IMAGE_BASIC_FIELDS['neurosynth_words_absolute_path'] = _basestring
 
 
 _IMAGE_BASIC_FIELDS_SQL = _translate_types_to_sql(_IMAGE_BASIC_FIELDS)
@@ -3265,32 +3266,6 @@ def show_neurovault_collection_keys(max_images=300):
 
     """
     pprint(_get_all_neurovault_keys(max_images)[1])
-
-
-def _which_keys_are_unused(max_images=None):
-    """Find which metadata fields are never filled.
-
-    Parameters
-    ----------
-    max_images: int, optional (default=None)
-        stop after seeing metadata for max_images images.  If None,
-        read metadata for all images and collections.
-
-    Returns
-    -------
-    im_unused, coll_unused
-        ``set`` objects of field names which are unused.
-
-    """
-    im_keys, coll_keys = _get_all_neurovault_keys(max_images)
-    im_unused, coll_unused = set(), set()
-    for k, v in im_keys.items():
-        if v[0] is None:
-            im_unused.add(k)
-    for k, v in coll_keys.items():
-        if v[0] is None:
-            coll_unused.add(k)
-    return im_unused, coll_unused
 
 
 def _filter_field_names(required_fields, ref_fields):

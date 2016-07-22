@@ -727,7 +727,6 @@ def test_fetch_neurovault_filtered():
             assert_equal(len(data.images), 1)
             nv.show_neurovault_image_keys(max_images=1)
             nv.show_neurovault_collection_keys(max_images=1)
-            assert_false('id' in nv._which_keys_are_unused(max_images=1)[0])
             assert_true(nv._nv_schema_exists(nv.local_database_cursor()))
             assert_true('collection_id' in nv.column_names(
                 nv.local_database_cursor(), 'images'))
