@@ -790,11 +790,6 @@ def test_move_col_id():
                  {'collection_id': 1, 'not_mni': False}, {'id': 2})
 
 
-@ignore_connection_errors
-def test_plot_fields_occurrences_bar():
-    nv.plot_fields_occurrences(max_images=3)
-
-
 def test_filter_field_names():
     assert_equal(nv._filter_field_names('a', {}), nv.OrderedDict())
     assert_equal(nv._filter_field_names(('a-b',), {'a_b': 0}),

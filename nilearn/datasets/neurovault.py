@@ -30,8 +30,6 @@ except ImportError:
     from urllib2 import build_opener, Request, URLError
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 from sklearn.datasets.base import Bunch
 from sklearn.feature_extraction import DictVectorizer
 
@@ -2956,10 +2954,6 @@ def fetch_neurovault(max_images=100,
     used by most authors and which are interesting to you, these
     functions could be of help:
 
-    plot_fields_occurrences
-        Show a bar plot of how many images (resp collections) use a
-        particular image (resp collection) metadata field.
-
     show_neurovault_image_keys, show_neurovault_collection_keys
         Show the field names that were seen in metadata and the types
         of the values that were associated to them. For this
@@ -3297,63 +3291,6 @@ def _which_keys_are_unused(max_images=None):
         if v[0] is None:
             coll_unused.add(k)
     return im_unused, coll_unused
-
-
-def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
-                           fontsize=20, **kwargs):
-    """Helper function for ``plot_fields_occurrences``"""
-    if ax is None:
-        fig = plt.figure()
-        ax = fig.gca()
-    width = .8
-    name_freq = [(name, info[1]) for (name, info) in keys.items()]
-    name, freq = zip(*name_freq)
-    name = np.asarray(name)
-    freq = np.asarray(freq)
-    order = np.argsort(freq)
-    ax.bar(range(len(name)), freq[order][::-1], width,
-           color='skyblue', linewidth=2, edgecolor='b',
-           zorder=3)
-    ax.set_xticks(np.arange(len(name)) + width / 2)
-    ax.set_xticklabels(name[order][::-1], rotation=txt_rotation,
-                       fontsize=fontsize, **kwargs)
-    ax.set_yticks(list(ax.get_yticks()) + [freq[order][-1]])
-    ax.grid(zorder=0, axis='y')
-    ax.tick_params(axis='y', labelsize=20)
-    ax.set_ylim((0, int(1.1 * max(freq))))
-
-
-def _prepare_subplots_fields_occurrences():
-    """Helper function for ``plot_fields_occurrences``"""
-    fig = plt.figure(figsize=(50, 30))
-    gs_im = GridSpec(
-        1, 1, bottom=.675, top=.9, left=.05, right=.98)
-    gs_col = GridSpec(
-        1, 1, bottom=.225, top=.45, left=.05, right=.98)
-    ax_im = fig.add_subplot(gs_im[:])
-    ax_im.set_title('images metadata', fontsize=32)
-    ax_col = fig.add_subplot(gs_col[:])
-    ax_col.set_title('collections metadata', fontsize=32)
-    for ax in (ax_im, ax_col):
-        ax.set_ylabel('# times specified', fontsize=32, labelpad=30)
-    return fig
-
-
-def plot_fields_occurrences(max_images=300, **kwargs):
-    """Draw a histogram of how often metadata fields are filled."""
-    all_keys = _get_all_neurovault_keys(max_images)
-    if not len(all_keys):
-        return None
-    n_im = max([n for t, n in all_keys[0].values()])
-    n_coll = max([n for t, n in all_keys[1].values()])
-    fig = _prepare_subplots_fields_occurrences()
-    fig.suptitle(
-        'Showing how many of {0} collections and {1} images '
-        'specify a non-null value for each metadata field'.format(
-            n_coll, n_im), fontsize=37)
-    axis_arr = fig.get_axes()
-    for table, ax in zip(all_keys, axis_arr):
-        _fields_occurences_bar(table, ax=ax, **kwargs)
 
 
 def _filter_field_names(required_fields, ref_fields):
