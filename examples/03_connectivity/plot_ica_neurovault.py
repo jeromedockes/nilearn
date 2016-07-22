@@ -20,7 +20,7 @@ import numpy as np
 from scipy import stats
 from sklearn.decomposition import FastICA
 
-from nilearn.datasets import neurovault as nv
+from nilearn.datasets import fetch_neurovault
 from nilearn.image import new_img_like
 from nilearn._utils import check_niimg
 
@@ -48,7 +48,7 @@ def clean_img(img, dtype=np.float32):
 print("Fetching Neurovault images; "
       "if you haven't downloaded any Neurovault data before "
       "this will take several minutes.")
-nv_data = nv.fetch_neurovault(max_images=80, fetch_neurosynth_words=True)
+nv_data = fetch_neurovault(max_images=80, fetch_neurosynth_words=True)
 
 images = nv_data['images']
 term_weights = nv_data['word_frequencies']
