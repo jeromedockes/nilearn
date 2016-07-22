@@ -30,11 +30,12 @@ except ImportError:
     from urllib2 import build_opener, Request, URLError
 
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 from sklearn.datasets.base import Bunch
 from sklearn.feature_extraction import DictVectorizer
 
 from .._utils.compat import _basestring
-from ..plotting.img_plotting import matplotlib as mpl
 from .utils import _fetch_file, _get_dataset_dir
 
 
@@ -3302,7 +3303,7 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
                            fontsize=20, **kwargs):
     """Helper function for ``plot_fields_occurrences``"""
     if ax is None:
-        fig = mpl.pyplot.figure()
+        fig = plt.figure()
         ax = fig.gca()
     width = .8
     name_freq = [(name, info[1]) for (name, info) in keys.items()]
@@ -3324,10 +3325,10 @@ def _fields_occurences_bar(keys, ax=None, txt_rotation='vertical',
 
 def _prepare_subplots_fields_occurrences():
     """Helper function for ``plot_fields_occurrences``"""
-    fig = mpl.pyplot.figure(figsize=(50, 30))
-    gs_im = mpl.gridspec.GridSpec(
+    fig = plt.figure(figsize=(50, 30))
+    gs_im = GridSpec(
         1, 1, bottom=.675, top=.9, left=.05, right=.98)
-    gs_col = mpl.gridspec.GridSpec(
+    gs_col = GridSpec(
         1, 1, bottom=.225, top=.45, left=.05, right=.98)
     ax_im = fig.add_subplot(gs_im[:])
     ax_im.set_title('images metadata', fontsize=32)
