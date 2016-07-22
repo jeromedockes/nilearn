@@ -42,11 +42,13 @@ def clean_img(img, dtype=np.float32):
 ######################################################################
 # Get image and term data
 
-# Download 500 images
+# Download images
+# Here by default we only download 80 images to save time,
+# but for better results I recommend using at least 200.
 print("Fetching Neurovault images; "
       "if you haven't downloaded any Neurovault data before "
       "this will take several minutes.")
-nv_data = nv.fetch_neurovault(max_images=500, fetch_neurosynth_words=True)
+nv_data = nv.fetch_neurovault(max_images=80, fetch_neurosynth_words=True)
 
 images = nv_data['images']
 term_weights = nv_data['word_frequencies']
