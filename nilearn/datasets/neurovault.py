@@ -1405,17 +1405,17 @@ def neurosynth_words_vectorized(word_files, **kwargs):
     vocabulary list and a term weight matrix.
 
     Parameters:
-    ----------
+    -----------
     word_files : container
         The paths to the files from which to read word weights (each
         is supposed to contain the Neurosynth response for a
         particular image).
 
     Keyword arguments are passed on to
-    `sklearn.feature_extraction.DictVectorizer.
+    ``sklearn.feature_extraction.DictVectorizer``.
 
     Returns:
-    -------
+    --------
     vocabulary : list of str
         A list of all the words encountered in the word files.
 
@@ -1653,6 +1653,7 @@ class DownloadManager(BaseDownloadManager):
 
     For each collection, this download manager creates a subdirectory
     in the Neurovault directory and stores in it:
+
         - Metadata for the collection (in .json files).
         - Metadata for the brain maps (in .json files), the brain maps
           (in .nii.gz files).
@@ -2689,7 +2690,7 @@ def _chain_local_and_remote(neurovault_dir, mode='download_new',
         working offline).
 
     max_images : int, optional (default=None)
-            Maximum number of images to download; only used if
+        Maximum number of images to download; only used if
         `download_manager` is None. Ignored if `wanted_collection_ids`
         or `wanted_image_ids` is used.
 
@@ -2781,6 +2782,7 @@ def basic_image_terms():
 
     More precisely, an image is excluded if one of the following is
     true:
+
         - It is not in MNI space.
         - Its metadata field "is_valid" is cleared.
         - It is thresholded.
@@ -2827,7 +2829,7 @@ def fetch_neurovault(max_images=100,
                      mode='download_new', neurovault_data_dir=None,
                      fetch_neurosynth_words=False, fetch_reduced_rep=False,
                      download_manager=None, vectorize_words=True, **kwargs):
-    """Download data from neurovault.org[1]_ and neurosynth.org[2]_.
+    """Download data from neurovault.org [1]_ and neurosynth.org [2]_.
 
     Any downloaded data is saved on the local disk and subsequent
     calls to this function will first look for the data locally before
@@ -2842,8 +2844,7 @@ def fetch_neurovault(max_images=100,
             or until an (optional) maximum number of images to fetch
             has been reached.
 
-        - Explicitely specifying a list of collection and/or image
-          ids:
+        - Explicitely specifying a list of collection and/or image ids:
             This is a faster way to get the data from the server if we
             already know which images or collections we want. This is
             what happens if one or both of `collection_ids` and
@@ -2920,21 +2921,21 @@ def fetch_neurovault(max_images=100,
     Returns
     -------
     Bunch
-        A dict-like object which exposes its items as attributes.  It
-        contains:
+        A dict-like object which exposes its items as attributes. It contains:
+
             - 'images', the paths to downloaded files.
             - 'images_meta', the metadata for the images in a list of
-            dictionaries.
+              dictionaries.
             - 'collections_meta', the metadata for the
-            collections.
+              collections.
 
-        If `fetch_neurosynth_words` was set, it also
-        contains:
+        If `fetch_neurosynth_words` was set, it also contains:
+
             - 'vocabulary', a list of words
             - 'word_frequencies', the weight of the words returned by
-            neurosynth.org for each image, such that the weight of word
-            `vocabulary[j]` for the image found in `images[i]` is
-            `word_frequencies[i, j]`
+              neurosynth.org for each image, such that the weight of word
+              `vocabulary[j]` for the image found in `images[i]` is
+              `word_frequencies[i, j]`
 
     See Also
     --------
@@ -2951,11 +2952,9 @@ def fetch_neurovault(max_images=100,
         Alternative ways to access the data once it has been
         downloaded.
 
-    ResultFilter, IsNull, NotNull, NotEqual, GreaterOrEqual,
-    GreaterThan, LessOrEqual, LessThan, IsIn, NotIn, Contains,
-    NotContains, Pattern:
-        Helpers to express filtering criteria in a less verbose
-        manner.
+    Some helpers to express filtering criteria in a less verbose manner:
+    ResultFilter, IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
+    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
 
     Some authors have included many fields in the metadata they
     provide; in order to make it easier to figure out which fields are
@@ -2966,8 +2965,8 @@ def fetch_neurovault(max_images=100,
         Show the field names that were seen in metadata and the types
         of the values that were associated to them. For this
         information, you can also have a look at the module-level
-        variables _IMAGE_BASIC_FIELDS, _COLLECTION_BASIC_FIELDS,
-        _ALL_COLLECTION_FIELDS and _ALL_IMAGE_FIELDS.
+        variables ``_IMAGE_BASIC_FIELDS``, ``_COLLECTION_BASIC_FIELDS``,
+        ``_ALL_COLLECTION_FIELDS`` and ``_ALL_IMAGE_FIELDS``.
 
     Notes
     -----
@@ -3334,9 +3333,11 @@ def local_database_connection():
     This is for users who find SQL syntax more convenient than
     manipulating python dicts. It can also be useful to users who also
     use ``pandas``, as they can very easily load Neurovault metadata
-    into a ``pandas.DataFrame`` object:
+    into a ``pandas.DataFrame`` object::
 
-    df = pd.read_sql_query("SELECT * FROM images", local_database_connection())
+        import pandas as pd
+        df = pd.read_sql_query(
+            "SELECT * FROM images", local_database_connection())
 
     """
     if getattr(local_database_connection, 'connection_', None) is not None:
@@ -3381,8 +3382,8 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
                    col_fields=_COLLECTION_BASIC_FIELDS):
     """Create images and collections tables in an sqlite database.
 
-    Only elements from _ALL_COLLECTION_FIELDS_SQL and
-    _ALL_IMAGE_FIELDS_SQL will actually be used.
+    Only elements from ``_ALL_COLLECTION_FIELDS_SQL`` and
+    ``_ALL_IMAGE_FIELDS_SQL`` will actually be used.
 
     Parameters:
     ----------
@@ -3507,10 +3508,10 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
 
     Notes
     -----
-
     When selecting images, you may want to consider using the view
     ``valid_images``, rather than the whole ``images`` table. This
     view selects the rows corresponding to images that:
+
         - Are valid (according to the metadata field ``is_valid``).
         - Are in MNI space.
         - Are unthresholded.
