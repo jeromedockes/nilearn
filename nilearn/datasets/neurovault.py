@@ -3530,8 +3530,9 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
         ... "collections.DOI FROM images "
         ... "INNER JOIN collections ON "
         ... "images.collection_id=collections.id")
+        ... # doctest: +SKIP
 
-        >>> print(list(data.keys()))
+        >>> print(list(data.keys())) # doctest: +SKIP
         ['image_id', 'image_path', 'collection_id', 'DOI']
 
     """
