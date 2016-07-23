@@ -1,6 +1,9 @@
 """
 Download statistical maps available on Neurovault (http://neurovault.org).
 """
+# Author: Jerome Dockes
+# License: simplified BSD
+
 import os
 import logging
 import warnings
@@ -854,6 +857,7 @@ class IsIn(_SpecialValue):
 
     Examples
     --------
+    >>> from nilearn.datasets.neurovault import IsIn
     >>> countable = IsIn(range(11))
     >>> 7 == countable
     True
@@ -916,6 +920,7 @@ class Contains(_SpecialValue):
 
     Examples
     --------
+    >>> from nilearn.datasets.neurovault import Contains
     >>> contains = Contains('house', 'face')
     >>> 'face vs house' == contains
     True
@@ -995,6 +1000,7 @@ class Pattern(_SpecialValue):
 
     Examples
     --------
+    >>> from nilearn.datasets.neurovault import Pattern
     >>> pattern = Pattern(r'[0-9akqj]{5}$')
     >>> 'ak05q' == pattern
     True
@@ -1073,6 +1079,7 @@ class ResultFilter(object):
 
     Examples
     --------
+    >>> from nilearn.datasets.neurovault import ResultFilter
     >>> filt = ResultFilter(a=0).AND(ResultFilter(b=1).OR(ResultFilter(b=2)))
     >>> filt({'a': 0, 'b': 1})
     True
@@ -2624,12 +2631,12 @@ class _EmptyContext(object):
         pass
 
 
-def _join_local_and_remote(neurovault_dir, mode='download_new',
-                           collection_terms=None,
-                           collection_filter=_empty_filter,
-                           image_terms=None, image_filter=_empty_filter,
-                           wanted_collection_ids=None, wanted_image_ids=None,
-                           download_manager=None, max_images=None):
+def _chain_local_and_remote(neurovault_dir, mode='download_new',
+                            collection_terms=None,
+                            collection_filter=_empty_filter,
+                            image_terms=None, image_filter=_empty_filter,
+                            wanted_collection_ids=None, wanted_image_ids=None,
+                            download_manager=None, max_images=None):
     """Iterate over results from disk, then those found on neurovault.org
 
     Parameters
@@ -3024,6 +3031,7 @@ def fetch_neurovault(max_images=100,
     >>> newest = read_sql_query(
     ... "SELECT MAX(modify_date) AS max_date FROM images")['max_date'][0]
     ... # doctest: +SKIP
+
     >>> fetch_neurovault(
     ... max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
     ... # doctest: +SKIP
@@ -3053,7 +3061,7 @@ def fetch_neurovault(max_images=100,
             fetch_neurosynth_words=fetch_neurosynth_words,
             fetch_reduced_rep=fetch_reduced_rep)
 
-    scroller = _join_local_and_remote(
+    scroller = _chain_local_and_remote(
         neurovault_dir=neurovault_data_dir, mode=mode,
         collection_terms=collection_terms, collection_filter=collection_filter,
         image_terms=image_terms, image_filter=image_filter,
@@ -3215,7 +3223,7 @@ def _get_all_neurovault_keys(max_images=None):
         im_keys = {}
         coll_keys = {}
         seen_colls = set()
-        for im, coll in _join_local_and_remote(
+        for im, coll in _chain_local_and_remote(
                 neurovault_dir=neurovault_directory(), max_images=max_images):
             _update_metadata_info(im_keys, im)
             if coll['id'] not in seen_colls:

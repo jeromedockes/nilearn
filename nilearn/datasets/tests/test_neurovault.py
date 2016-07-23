@@ -1,3 +1,9 @@
+"""
+Test the neurovault module.
+"""
+# Author: Jerome Dockes
+# License: simplified BSD
+
 import os
 import warnings
 import stat
@@ -714,9 +720,9 @@ class TestDownloadManager(nv.BaseDownloadManager):
         raise nv.URLError('bad download')
 
 
-def test_join_local_and_remote():
+def test_chain_local_and_remote():
     assert_raises(ValueError, lambda: list(
-        nv._join_local_and_remote(nv.neurovault_directory(), 'bad_mode')))
+        nv._chain_local_and_remote(nv.neurovault_directory(), 'bad_mode')))
 
 
 def test_fetch_neurovault_filtered():
