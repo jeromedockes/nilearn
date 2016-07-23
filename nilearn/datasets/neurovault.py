@@ -3021,20 +3021,17 @@ def fetch_neurovault(max_images=100,
 
     Examples
     --------
-    To download **all** the collections and images from Neurovault:
+    To download **all** the collections and images from Neurovault::
 
-    >>> fetch_neurovault(max_images=None, collection_terms={}, image_terms={})
-    ... # doctest: +SKIP
+        fetch_neurovault(max_images=None, collection_terms={}, image_terms={})
 
-    To update all the images (matching the default filters):
+    To update all the images (matching the default filters)::
 
-    >>> newest = read_sql_query(
-    ... "SELECT MAX(modify_date) AS max_date FROM images")['max_date'][0]
-    ... # doctest: +SKIP
+        newest = read_sql_query(
+            "SELECT MAX(modify_date) AS max_date FROM images")['max_date'][0]
 
-    >>> fetch_neurovault(
-    ... max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
-    ... # doctest: +SKIP
+        fetch_neurovault(
+            max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
 
     """
     if collection_ids is not None or image_ids is not None:
@@ -3523,16 +3520,20 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
 
     Examples
     --------
-    >>> data = nv.read_sql_query("SELECT images.id AS image_id, "
-    ... "images.absolute_path AS image_path, "
-    ... "collections.id AS collection_id, "
-    ... "collections.DOI FROM images "
-    ... "INNER JOIN collections ON "
-    ... "images.collection_id=collections.id")
-    ... # doctest: +SKIP
+    .. doctest::
+        :options: +SKIP
 
-    >>> print(list(data.keys())) # doctest: +SKIP
-    ['image_id', 'image_path', 'collection_id', 'DOI']
+        >>> from nilearn.datasets.neurovault import read_sql_query
+        >>> data = read_sql_query("SELECT images.id AS image_id, "
+        ... "images.absolute_path AS image_path, "
+        ... "collections.id AS collection_id, "
+        ... "collections.DOI FROM images "
+        ... "INNER JOIN collections ON "
+        ... "images.collection_id=collections.id")
+
+        >>> print(list(data.keys()))
+        ['image_id', 'image_path', 'collection_id', 'DOI']
+
     """
     _logger.debug('Reading SQL query: {0} ***bindings: {1}'.format(
         query, bindings))
