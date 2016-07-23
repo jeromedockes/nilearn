@@ -1075,7 +1075,8 @@ class ResultFilter(object):
     See Also
     --------
     IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
+    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains,
+    Pattern.
 
     Examples
     --------
