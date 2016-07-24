@@ -2977,9 +2977,12 @@ def fetch_neurovault(max_images=100,
 
     collection_terms : dict, optional (default=basic_collection_terms())
         Key, value pairs used to filter collection
-        metadata. Collections for which ``collection_metadata['key']
-        == value`` is not ``True`` for every key, value pair will be
-        discarded. Ignored if `collection_ids` or `image_ids` is used.
+        metadata. Collections for which
+        ``collection_metadata['key'] == value`` is not ``True`` for
+        every key, value pair will be discarded.
+        Ignored if `collection_ids` or `image_ids` is used.
+        See documentation for ``basic_collection_terms`` for a
+        description of the default selection criteria.
 
     collection_filter : Callable, optional (default=_empty_filter)
         Collections for which `collection_filter(collection_metadata)`
@@ -2991,6 +2994,8 @@ def fetch_neurovault(max_images=100,
         which ``image_metadata['key'] == value`` is not ``True`` for
         every key, value pair will be discarded. Ignored if
         `collection_ids` or `image_ids` is used.
+        See documentation for ``basic_image_terms`` for a
+        description of the default selection criteria.
 
     image_filter : Callable, optional (default=_empty_filter)
         Images for which `image_filter(image_metadata)` is ``False``
@@ -3008,6 +3013,9 @@ def fetch_neurovault(max_images=100,
         collections from `collection_ids`)
 
     mode : {'download_new', 'overwrite', 'offline'}
+        When to fetch an image from the server rather than the local
+        disk.
+
         - 'download_new' (the default) means download only files that
           are not already on disk (regardless of modify date).
         - 'overwrite' means ignore files on disk and overwrite them.
@@ -3027,7 +3035,10 @@ def fetch_neurovault(max_images=100,
 
     download_manager : BaseDownloadManager, optional (default=None)
         The download manager used to handle data from neurovault.org.
-        If None, one is constructed (an SQLiteDownloadManager).
+        If ``None``, one is constructed (an ``SQLiteDownloadManager``).
+        See documentation for ``SQLiteDownloadManager`` or
+        ``DownloadManager`` for fine-grained control of how metadata
+        is handled.
 
     Keyword arguments are understood to be filter terms for images, so
     for example ``map_type='Z map'`` means only download Z-maps;
@@ -3053,57 +3064,6 @@ def fetch_neurovault(max_images=100,
               `vocabulary[j]` for the image found in `images[i]` is
               `word_frequencies[i, j]`
 
-    See Also
-    --------
-    nilearn.datasets.neurovault.basic_image_terms
-        The terms on which images are filtered by default.
-
-    nilearn.datasets.neurovault.basic_collection_terms
-        The terms on which collections are filtered by default.
-
-    nilearn.datasets.neurovault.SQLiteDownloadManager
-        Default handler for the downloaded data.
-
-    nilearn.datasets.neurovault.DownloadManager
-        Possible handler for the downloaded data.
-
-    nilearn.datasets.neurovault.read_sql_query
-        Alternative way to access the data once it has been
-        downloaded.
-
-    nilearn.datasets.neurovault.local_database_connection
-        Alternative way to access the data once it has been
-        downloaded.
-
-    Some helpers to express filtering criteria in a less verbose manner:
-    nilearn.datasets.neurovault.ResultFilter,
-    nilearn.datasets.neurovault.IsNull,
-    nilearn.datasets.neurovault.NotNull,
-    nilearn.datasets.neurovault.NotEqual,
-    nilearn.datasets.neurovault.GreaterOrEqual,
-    nilearn.datasets.neurovault.GreaterThan,
-    nilearn.datasets.neurovault.LessOrEqual,
-    nilearn.datasets.neurovault.LessThan,
-    nilearn.datasets.neurovault.IsIn,
-    nilearn.datasets.neurovault.NotIn,
-    nilearn.datasets.neurovault.Contains,
-    nilearn.datasets.neurovault.NotContains,
-    nilearn.datasets.neurovault.Pattern.
-
-    Some authors have included many fields in the metadata they
-    provide; in order to make it easier to figure out which fields are
-    used by most authors and which are interesting to you, these
-    functions could be of help:
-
-    nilearn.datasets.neurovault.show_neurovault_image_keys,\
-     nilearn.datasets.neurovault.show_neurovault_collection_keys:
-        Show the field names that were seen in metadata and the types
-        of the values that were associated to them. For this
-        information, you can also have a look at the module-level
-        variables ``_IMAGE_BASIC_FIELDS``,
-        ``_COLLECTION_BASIC_FIELDS``, ``_ALL_COLLECTION_FIELDS`` and
-        ``_ALL_IMAGE_FIELDS``.
-
     Notes
     -----
     The default behaviour is to store the most important fields (which
@@ -3111,9 +3071,29 @@ def fetch_neurovault(max_images=100,
     actually just a file but can be queried like an SQL database. So
     in addition to the ``Bunch`` returned by this function, if you
     find it more convenient, you can access the data through this
-    other interface once it has been downloaded.
+    other interface once it has been downloaded. See the documentation
+    for ``read_sql_query``, ``local_database_connection`` and
+    ``local_database_cursor`` for details.
 
     Images and collections from disk are fetched before remote data.
+
+    Some helpers are provided in the ``neurovault`` module to express
+    filtering criteria in a less verbose manner:
+
+        ``ResultFilter``, ``IsNull``, ``NotNull``, ``NotEqual``,
+        ``GreaterOrEqual``, ``GreaterThan``, ``LessOrEqual``,
+        ``LessThan``, ``IsIn``, ``NotIn``, ``Contains``,
+        ``NotContains``, ``Pattern``.
+
+    Some authors have included many fields in the metadata they
+    provide; in order to make it easier to figure out which fields are
+    interesting to you, ``show_neurovault_image_keys`` and
+    ``show_neurovault_collection_keys`` could be of help.  They print
+    the field names that were seen in metadata and the types of the
+    values that were associated to them. For this information, you can
+    also have a look at the module-level variables
+    ``_IMAGE_BASIC_FIELDS``, ``_COLLECTION_BASIC_FIELDS``,
+    ``_ALL_COLLECTION_FIELDS`` and ``_ALL_IMAGE_FIELDS``.
 
     If you pass a single value to match against the collection id
     (wether as the 'id' field of the collection metadata or as the
@@ -3159,6 +3139,14 @@ def fetch_neurovault(max_images=100,
     To download **all** the collections and images from Neurovault::
 
         fetch_neurovault(max_images=None, collection_terms={}, image_terms={})
+
+    To further limit the default selection to collections which
+    specify a DOI (which reference a published paper, as they may be
+    more likely to contain good images)::
+
+        fetch_neurovault(
+            max_images=None,
+            collection_terms=dict(basic_collection_terms(), DOI=NotNull()))
 
     To update all the images (matching the default filters)::
 
