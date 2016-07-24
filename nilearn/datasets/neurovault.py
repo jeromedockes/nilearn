@@ -3316,6 +3316,10 @@ def recompute_db(**kwargs):
         read_sql_query("DROP VIEW valid_images")
     except sqlite3.OperationalError:
         pass
+    try:
+        read_sql_query("DROP VIEW valid_collections")
+    except sqlite3.OperationalError:
+        pass
     refresh_db()
 
 
@@ -3563,6 +3567,15 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
     except sqlite3.OperationalError:
         _logger.debug("Failed to create 'valid_images' view: {0}".format(
             traceback.format_exc()))
+    try:
+        cursor = cursor.execute(
+            """CREATE VIEW valid_collections AS SELECT DISTINCT
+            collections.* FROM
+            valid_images INNER JOIN collections ON
+            valid_images.collection_id=collections.id""")
+    except sqlite3.OperationalError:
+        _logger.debug("Failed to create 'valid_collections' view: {0}".format(
+            traceback.format_exc()))
     cursor.connection.commit()
     return cursor
 
@@ -3656,6 +3669,11 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
         - Are not atlases.
         - Are not in ``_KNOWN_BAD_IMAGE_IDS``.
         - Are not in a collection that is in ``_KNOWN_BAD_COLLECTION_IDS``.
+
+    When selecting collections, you may want to consider using the
+    view ``valid_collections`` rather than the whole table. This view
+    selects the collections which contain at least one image from
+    ``valid_images``.
 
     Examples
     --------
