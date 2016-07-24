@@ -3,11 +3,11 @@ Neurovault statistical maps
 
 Notes
 -----
-Neurovault[1]_ is a public repository of unthresholded statistical
+Neurovault [1]_ is a public repository of unthresholded statistical
 maps, parcellations, and atlases of the human brain. You can read
 about it and browse the images it contains at www.neurovault.org.
 
-Additionally, it is possible to ask Neurosynth[2]_ to anotate the maps
+Additionally, it is possible to ask Neurosynth [2]_ to anotate the maps
 we have downloaded.  Neurosynth is a platform for large-scale,
 automated synthesis of fMRI data. It can be used to perform decoding.
 You can find out more about Neurosynth at www.neurosynth.org.
