@@ -429,10 +429,6 @@ def _append_filters_to_query(query, filters):
     str
         The query with filters appended to it.
 
-    See Also
-    --------
-    urllib.parse.urlencode
-
     Notes
     -----
     If one of the `filters` keys is 'id', we get the url that points
@@ -680,8 +676,17 @@ class IsNull(_SpecialValue):
 
     See Also
     --------
-    NotNull, NotEqual, GreaterOrEqual, GreaterThan, LessOrEqual,
-    LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def __eq__(self, other):
@@ -697,8 +702,17 @@ class NotNull(_SpecialValue):
 
     See Also
     --------
-    IsNull, NotEqual, GreaterOrEqual, GreaterThan, LessOrEqual,
-    LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def __eq__(self, other):
@@ -720,8 +734,17 @@ class NotEqual(_SpecialValue):
 
     See Also
     --------
-    IsNull, NotNull, GreaterOrEqual, GreaterThan, LessOrEqual,
-    LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def __init__(self, negated):
@@ -759,8 +782,17 @@ class GreaterOrEqual(_OrderComp):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterThan, LessOrEqual, LessThan,
-    IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def _eq_impl(self, other):
@@ -782,8 +814,17 @@ class GreaterThan(_OrderComp):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, LessOrEqual, LessThan,
-    IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def _eq_impl(self, other):
@@ -805,8 +846,17 @@ class LessOrEqual(_OrderComp):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan, LessThan,
-    IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def _eq_impl(self, other):
@@ -828,8 +878,17 @@ class LessThan(_OrderComp):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def _eq_impl(self, other):
@@ -852,8 +911,17 @@ class IsIn(_SpecialValue):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     Examples
     --------
@@ -888,8 +956,17 @@ class NotIn(_SpecialValue):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, IsIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def __init__(self, rejected):
@@ -915,8 +992,17 @@ class Contains(_SpecialValue):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, IsIn, NotIn, NotContains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     Examples
     --------
@@ -956,8 +1042,17 @@ class NotContains(_SpecialValue):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, IsIn, NotIn, Contains, Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.Pattern.
 
     """
     def __init__(self, *args):
@@ -993,8 +1088,17 @@ class Pattern(_SpecialValue):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains.
 
     Documentation for standard library ``re`` module.
 
@@ -1074,9 +1178,18 @@ class ResultFilter(object):
 
     See Also
     --------
-    IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains,
-    Pattern.
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     Examples
     --------
@@ -1198,7 +1311,7 @@ def _simple_download(url, target_file, temp_dir):
 
     See Also
     --------
-    _utils._fetch_file
+    nilearn.datasets._utils._fetch_file
 
 
     Notes
@@ -1265,7 +1378,7 @@ def _checked_get_dataset_dir(dataset_name, suggested_dir=None,
 
     See Also
     --------
-    _utils._get_dataset_dir
+    nilearns.datasets._utils._get_dataset_dir
 
     """
     if suggested_dir is not None:
@@ -1286,8 +1399,8 @@ def neurovault_directory(suggested_dir=None):
 
     See Also
     --------
-    set_neurovault_directory
-    refresh_db
+    nilearn.datasets.neurovault.set_neurovault_directory
+    nilearn.datasets.neurovault.refresh_db
 
     """
     if getattr(neurovault_directory, 'directory_path_', None) is not None:
@@ -1334,9 +1447,9 @@ def set_neurovault_directory(new_neurovault_dir=None):
 
     See Also
     --------
-    neurovault_directory
-    refresh_db
-    _checked_get_dataset_dir
+    nilearn.datasets.neurovault.neurovault_directory
+    nilearn.datasets.neurovault.refresh_db
+    nilearn.datasets.neurovault._checked_get_dataset_dir
 
     """
     _logger.debug('Set neurovault directory: {0}...'.format(
@@ -2077,7 +2190,7 @@ class SQLiteDownloadManager(DownloadManager):
 
         See Also
         --------
-        SQLiteDownloadManager._update_schema
+        nilearn.datasets.neurovault.SQLiteDownloadManager._update_schema
 
         """
         super(SQLiteDownloadManager, self).start()
@@ -2787,7 +2900,8 @@ def basic_image_terms():
         - It is not in MNI space.
         - Its metadata field "is_valid" is cleared.
         - It is thresholded.
-        - Its map type is not one of "F map", "T map", or "Z map".
+        - Its map type is one of "ROI/mask", "anatomical", or "parcellation".
+        - Its image type is "atlas"
         - Its id is in ``_KNOWN_BAD_IMAGE_IDS``.
 
     """
@@ -2941,34 +3055,54 @@ def fetch_neurovault(max_images=100,
 
     See Also
     --------
-    basic_image_terms
+    nilearn.datasets.neurovault.basic_image_terms
         The terms on which images are filtered by default.
 
-    basic_collection_terms
+    nilearn.datasets.neurovault.basic_collection_terms
         The terms on which collections are filtered by default.
 
-    DownloadManager, SQLiteDownloadManager
-        Possible handlers for the downloaded data.
+    nilearn.datasets.neurovault.SQLiteDownloadManager
+        Default handler for the downloaded data.
 
-    read_sql_query, local_database_connection:
-        Alternative ways to access the data once it has been
+    nilearn.datasets.neurovault.DownloadManager
+        Possible handler for the downloaded data.
+
+    nilearn.datasets.neurovault.read_sql_query
+        Alternative way to access the data once it has been
+        downloaded.
+
+    nilearn.datasets.neurovault.local_database_connection
+        Alternative way to access the data once it has been
         downloaded.
 
     Some helpers to express filtering criteria in a less verbose manner:
-    ResultFilter, IsNull, NotNull, NotEqual, GreaterOrEqual, GreaterThan,
-    LessOrEqual, LessThan, IsIn, NotIn, Contains, NotContains, Pattern.
+    nilearn.datasets.neurovault.ResultFilter,
+    nilearn.datasets.neurovault.IsNull,
+    nilearn.datasets.neurovault.NotNull,
+    nilearn.datasets.neurovault.NotEqual,
+    nilearn.datasets.neurovault.GreaterOrEqual,
+    nilearn.datasets.neurovault.GreaterThan,
+    nilearn.datasets.neurovault.LessOrEqual,
+    nilearn.datasets.neurovault.LessThan,
+    nilearn.datasets.neurovault.IsIn,
+    nilearn.datasets.neurovault.NotIn,
+    nilearn.datasets.neurovault.Contains,
+    nilearn.datasets.neurovault.NotContains,
+    nilearn.datasets.neurovault.Pattern.
 
     Some authors have included many fields in the metadata they
     provide; in order to make it easier to figure out which fields are
     used by most authors and which are interesting to you, these
     functions could be of help:
 
-    show_neurovault_image_keys, show_neurovault_collection_keys
+    nilearn.datasets.neurovault.show_neurovault_image_keys,\
+     nilearn.datasets.neurovault.show_neurovault_collection_keys:
         Show the field names that were seen in metadata and the types
         of the values that were associated to them. For this
         information, you can also have a look at the module-level
-        variables ``_IMAGE_BASIC_FIELDS``, ``_COLLECTION_BASIC_FIELDS``,
-        ``_ALL_COLLECTION_FIELDS`` and ``_ALL_IMAGE_FIELDS``.
+        variables ``_IMAGE_BASIC_FIELDS``,
+        ``_COLLECTION_BASIC_FIELDS``, ``_ALL_COLLECTION_FIELDS`` and
+        ``_ALL_IMAGE_FIELDS``.
 
     Notes
     -----
@@ -3132,7 +3266,7 @@ def refresh_db(**kwargs):
 
     See Also
     --------
-    SQLiteDownloadManager
+    nilearn.datasets.neurovault.SQLiteDownloadManager
 
     """
     if not os.access(neurovault_metadata_db_path(), os.W_OK):
@@ -3165,7 +3299,7 @@ def recompute_db(**kwargs):
 
     See Also
     --------
-    SQLiteDownloadManager
+    nilearn.datasets.neurovault.SQLiteDownloadManager
 
     """
     if not os.access(neurovault_metadata_db_path(), os.W_OK):
@@ -3515,10 +3649,11 @@ def read_sql_query(query, bindings=(), as_columns=True, curs=None,
     ``valid_images``, rather than the whole ``images`` table. This
     view selects the rows corresponding to images that:
 
-        - Are valid (according to the metadata field ``is_valid``).
+        - Are valid (according to the metadata field 'is_valid').
         - Are in MNI space.
         - Are unthresholded.
-        - Are either Z, F or T maps.
+        - Are not ROI/mask, anatomical or parcellation maps.
+        - Are not atlases.
         - Are not in ``_KNOWN_BAD_IMAGE_IDS``.
         - Are not in a collection that is in ``_KNOWN_BAD_COLLECTION_IDS``.
 
