@@ -2792,7 +2792,8 @@ def basic_image_terms():
 
     """
     return {'not_mni': False, 'is_valid': True, 'is_thresholded': False,
-            'map_type': IsIn(('F map', 'T map', 'Z map')),
+            'map_type': NotIn(('ROI/mask', 'anatomical', 'parcellation')),
+            'image_type': NotEqual('atlas'),
             'id': NotIn(_KNOWN_BAD_IMAGE_IDS)}
 
 
@@ -3421,7 +3422,8 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
         cursor = cursor.execute(
             """CREATE VIEW valid_images AS SELECT * FROM images WHERE
             not_mni=0 AND is_valid=1 AND is_thresholded=0 AND
-            map_type IN ('F map', 'T map', 'Z map') AND
+            map_type NOT IN ('ROI/mask', 'anatomical', 'parcellation') AND
+            image_type!='atlas' AND
             KNOWN_BAD_COL_ID(collection_id)=0 AND
             KNOWN_BAD_IM_ID(id)=0""")
     except sqlite3.OperationalError:
