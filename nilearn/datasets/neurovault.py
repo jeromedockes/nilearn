@@ -2945,7 +2945,7 @@ def fetch_neurovault(max_images=100,
                      mode='download_new', neurovault_data_dir=None,
                      fetch_neurosynth_words=False, fetch_reduced_rep=False,
                      download_manager=None, vectorize_words=True, **kwargs):
-    """Download data from neurovault.org [1]_ and neurosynth.org [2]_.
+    """Download data from neurovault.org and neurosynth.org.
 
     Any downloaded data is saved on the local disk and subsequent
     calls to this function will first look for the data locally before

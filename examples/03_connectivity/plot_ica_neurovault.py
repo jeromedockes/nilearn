@@ -25,11 +25,6 @@ from nilearn.image import new_img_like
 from nilearn._utils import check_niimg
 
 
-warnings.simplefilter('error', RuntimeWarning)  # Catch numeric issues in imgs
-warnings.simplefilter('ignore', DeprecationWarning)
-warnings.simplefilter('ignore', UserWarning)
-
-
 def clean_img(img, dtype=np.float32):
     """ Remove nan/inf entries."""
     img = check_niimg(img)
@@ -82,17 +77,20 @@ masker = masker.fit()
 # so we need to transform one-by-one and keep track of failures.
 X = []
 is_usable = np.ones((len(images),), dtype=bool)
-for index, image_path in enumerate(images):
-    image = clean_img(image_path)
-    try:
-        X.append(masker.transform(image))
-    except Exception as e:
-        meta = nv_data['images_meta'][index]
-        print("Failed to mask/reshape image: id: {0}; "
-              "name: '{1}'; collection: {2}; error: {3}".format(
-                  meta.get('id'), meta.get('name'),
-                  meta.get('collection_id'), e))
-        is_usable[index] = False
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', DeprecationWarning)
+
+    for index, image_path in enumerate(images):
+        image = clean_img(image_path)
+        try:
+            X.append(masker.transform(image))
+        except Exception as e:
+            meta = nv_data['images_meta'][index]
+            print("Failed to mask/reshape image: id: {0}; "
+                  "name: '{1}'; collection: {2}; error: {3}".format(
+                      meta.get('id'), meta.get('name'),
+                      meta.get('collection_id'), e))
+            is_usable[index] = False
 
 # Now reshape list into 2D matrix, and remove failed images from terms
 X = np.vstack(X)
@@ -116,6 +114,8 @@ print('Done, plotting results.')
 
 from nilearn import plotting
 
+old_max_open = plotting.img_plotting.matplotlib.pyplot.rcParams[
+    'figure.max_open_warning']
 plotting.img_plotting.matplotlib.pyplot.rcParams[
     'figure.max_open_warning'] = n_components + 2
 
@@ -138,3 +138,6 @@ for index, (ic_map, ic_terms) in enumerate(zip(
 
 # Done.
 plotting.show()
+
+plotting.img_plotting.matplotlib.pyplot.rcParams[
+    'figure.max_open_warning'] = old_max_open
