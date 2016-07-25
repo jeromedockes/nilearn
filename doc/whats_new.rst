@@ -171,10 +171,10 @@ Bug fixes
      the size of a voxel
    - :class:`nilearn.regions.RegionExtractor` handles data containing Nans.
    - Confound regression does not force systematically the normalization of
-     the confounds. 
+     the confounds.
    - Force time series normalization in
      :class:`nilearn.connectome.ConnectivityMeasure`
-     and check dimensionality of the input. 
+     and check dimensionality of the input.
    - `nilearn._utils.numpy_conversions.csv_to_array` could consider
      valid CSV files as invalid.
 
