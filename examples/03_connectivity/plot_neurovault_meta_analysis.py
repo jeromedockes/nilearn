@@ -11,9 +11,9 @@ documentation for more details.
 """
 import numpy as np
 import scipy
-import nibabel as nb
 
 from nilearn.datasets import neurovault as nv
+from nilearn.image import new_img_like, load_img
 
 
 ######################################################################
@@ -87,7 +87,7 @@ for collection in [col for col in collections
     image_z_niis = []
     for im in cur_imgs:
         # Load and validate the downloaded image.
-        nii = nb.load(im['absolute_path'])
+        nii = load_img(im['absolute_path'])
         deg_of_freedom = im['number_of_subjects'] - 2
         print("{0:>10}Image {1:>4}: degrees of freedom: {2}".format(
             "", im['id'], deg_of_freedom))
@@ -96,7 +96,6 @@ for collection in [col for col in collections
         data_z, data_p = t_to_z(nii.get_data(), deg_of_freedom=deg_of_freedom)
         p_datas.append(data_p)
         z_datas.append(data_z)
-        nii_z = nb.Nifti1Image(data_z, nii.get_affine())
         image_z_niis.append(nii)
 
     mean_map = mean_img(image_z_niis)
@@ -106,18 +105,18 @@ for collection in [col for col in collections
 
 
 # Fisher's z-score on all maps
-def z_map(z_data, affine):
+def z_map(ref_img, z_data, affine):
     cut_coords = [-15, -8, 6, 30, 46, 62]
     z_meta_data = np.array(z_data).sum(axis=0) / np.sqrt(len(z_data))
-    nii = nb.Nifti1Image(z_meta_data, affine)
+    nii = new_img_like(ref_img, z_meta_data, affine)
     plotting.plot_stat_map(nii, display_mode='z', threshold=6,
                            cut_coords=cut_coords, vmax=12)
 
 
-z_map(z_datas, mean_maps[0].get_affine())
+z_map(mean_maps[0], z_datas, mean_maps[0].get_affine())
 
 # Fisher's z-score on combined maps
 z_input_datas = [mean_nii.get_data() for mean_nii in mean_maps]
-z_map(z_input_datas, mean_maps[0].get_affine())
+z_map(mean_maps[0], z_input_datas, mean_maps[0].get_affine())
 
 plotting.show()

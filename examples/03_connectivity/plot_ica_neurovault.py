@@ -21,13 +21,12 @@ from scipy import stats
 from sklearn.decomposition import FastICA
 
 from nilearn.datasets import fetch_neurovault
-from nilearn.image import new_img_like
-from nilearn._utils import check_niimg
+from nilearn.image import new_img_like, load_img
 
 
 def clean_img(img, dtype=np.float32):
     """ Remove nan/inf entries."""
-    img = check_niimg(img)
+    img = load_img(img)
     img_data = img.get_data().astype(dtype)
     img_data[np.isnan(img_data)] = 0
     img_data[np.isinf(img_data)] = 0
@@ -69,16 +68,19 @@ from nilearn.input_data import NiftiMasker
 
 print("\nReshaping and masking images.\n")
 
-mask_img = load_mni152_brain_mask()
-masker = NiftiMasker(mask_img=mask_img, memory='nilearn_cache', memory_level=1)
-masker = masker.fit()
-
-# Images may fail to be transformed, and are of different shapes,
-# so we need to transform one-by-one and keep track of failures.
-X = []
-is_usable = np.ones((len(images),), dtype=bool)
 with warnings.catch_warnings():
+    warnings.simplefilter('ignore', UserWarning)
     warnings.simplefilter('ignore', DeprecationWarning)
+
+    mask_img = load_mni152_brain_mask()
+    masker = NiftiMasker(
+        mask_img=mask_img, memory='nilearn_cache', memory_level=1)
+    masker = masker.fit()
+
+    # Images may fail to be transformed, and are of different shapes,
+    # so we need to transform one-by-one and keep track of failures.
+    X = []
+    is_usable = np.ones((len(images),), dtype=bool)
 
     for index, image_path in enumerate(images):
         image = clean_img(image_path)
@@ -119,22 +121,25 @@ old_max_open = plotting.img_plotting.matplotlib.pyplot.rcParams[
 plotting.img_plotting.matplotlib.pyplot.rcParams[
     'figure.max_open_warning'] = n_components + 2
 
-for index, (ic_map, ic_terms) in enumerate(zip(
-        ica_maps, term_weights_for_components)):
-    if -ic_map.min() > ic_map.max():
-        # Flip the map's sign for prettiness
-        ic_map = - ic_map
-        ic_terms = - ic_terms
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', DeprecationWarning)
 
-    ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
-    ic_image = masker.inverse_transform(ic_map)
-    display = plotting.plot_stat_map(
-        ic_image, threshold=ic_threshold, colorbar=False, bg_img=mask_img)
+    for index, (ic_map, ic_terms) in enumerate(zip(
+            ica_maps, term_weights_for_components)):
+        if -ic_map.min() > ic_map.max():
+            # Flip the map's sign for prettiness
+            ic_map = - ic_map
+            ic_terms = - ic_terms
 
-    # Use the 4 terms weighted most as a title
-    important_terms = vocabulary[np.argsort(ic_terms)[-4:]]
-    title = '{0}: {1}'.format(index, ', '.join(important_terms[::-1]))
-    display.title(title, size=16)
+        ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
+        ic_image = masker.inverse_transform(ic_map)
+        display = plotting.plot_stat_map(
+            ic_image, threshold=ic_threshold, colorbar=False, bg_img=mask_img)
+
+        # Use the 4 terms weighted most as a title
+        important_terms = vocabulary[np.argsort(ic_terms)[-4:]]
+        title = '{0}: {1}'.format(index, ', '.join(important_terms[::-1]))
+        display.title(title, size=16)
 
 # Done.
 plotting.show()
