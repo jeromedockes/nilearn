@@ -37,7 +37,7 @@ from sklearn.datasets.base import Bunch
 from sklearn.feature_extraction import DictVectorizer
 
 from .._utils.compat import _basestring
-from .utils import _fetch_file, _get_dataset_dir
+from .utils import _fetch_file, _get_dataset_dir, _get_dataset_descr
 
 
 _NEUROVAULT_BASE_URL = 'http://neurovault.org/api/'
@@ -3055,6 +3055,7 @@ def fetch_neurovault(max_images=100,
               dictionaries.
             - 'collections_meta', the metadata for the
               collections.
+            - 'description', a short description of the Neurovault dataset.
 
         If `fetch_neurosynth_words` was set, it also contains:
 
@@ -3195,7 +3196,8 @@ def fetch_neurovault(max_images=100,
     images = [im_meta.get('absolute_path') for im_meta in images_meta]
     result = Bunch(images=images,
                    images_meta=images_meta,
-                   collections_meta=collections_meta)
+                   collections_meta=collections_meta,
+                   description=_get_dataset_descr('neurovault'))
     if fetch_neurosynth_words and vectorize_words:
         (result['word_frequencies'],
          result['vocabulary']) = neurosynth_words_vectorized(

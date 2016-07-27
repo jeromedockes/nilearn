@@ -24,12 +24,11 @@ from nilearn.datasets import fetch_neurovault
 from nilearn.image import new_img_like, load_img
 
 
-def clean_img(img, dtype=np.float32):
+def math_img(img, dtype=np.float32):
     """ Remove nan/inf entries."""
     img = load_img(img)
     img_data = img.get_data().astype(dtype)
-    img_data[np.isnan(img_data)] = 0
-    img_data[np.isinf(img_data)] = 0
+    img_data[~np.isfinite(img_data)] = 0
     return new_img_like(img, img_data)
 
 
@@ -83,7 +82,7 @@ with warnings.catch_warnings():
     is_usable = np.ones((len(images),), dtype=bool)
 
     for index, image_path in enumerate(images):
-        image = clean_img(image_path)
+        image = math_img(image_path)
         try:
             X.append(masker.transform(image))
         except Exception as e:
@@ -115,14 +114,15 @@ print('Done, plotting results.')
 # Generate figures
 
 from nilearn import plotting
-
-old_max_open = plotting.img_plotting.matplotlib.pyplot.rcParams[
-    'figure.max_open_warning']
-plotting.img_plotting.matplotlib.pyplot.rcParams[
-    'figure.max_open_warning'] = n_components + 2
+import matplotlib.pyplot as plt
+from math import ceil
 
 with warnings.catch_warnings():
     warnings.simplefilter('ignore', DeprecationWarning)
+
+    fig, axes = plt.subplots(int(ceil(n_components / 5.)), 5, frameon=False)
+    plt.setp(axes.flat, xticks=[], yticks=[])
+    fig.tight_layout()
 
     for index, (ic_map, ic_terms) in enumerate(zip(
             ica_maps, term_weights_for_components)):
@@ -134,7 +134,8 @@ with warnings.catch_warnings():
         ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
         ic_image = masker.inverse_transform(ic_map)
         display = plotting.plot_stat_map(
-            ic_image, threshold=ic_threshold, colorbar=False, bg_img=mask_img)
+            ic_image, threshold=ic_threshold, colorbar=False,
+            bg_img=mask_img, axes=axes.flat[index])
 
         # Use the 4 terms weighted most as a title
         important_terms = vocabulary[np.argsort(ic_terms)[-4:]]
@@ -142,7 +143,4 @@ with warnings.catch_warnings():
         display.title(title, size=16)
 
 # Done.
-plotting.show()
-
-plotting.img_plotting.matplotlib.pyplot.rcParams[
-    'figure.max_open_warning'] = old_max_open
+plt.show()
