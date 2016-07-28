@@ -102,7 +102,10 @@ term_weights = term_weights[is_usable, :]
 # Run ICA and map components to terms
 
 print("Running ICA; may take time...")
-n_components = 40
+# We use a very small number of components as we have downloaded only 80
+# images. For better results, increase the number of images downloaded
+# and the number of components
+n_components = 16
 fast_ica = FastICA(n_components=n_components, random_state=0)
 ica_maps = fast_ica.fit_transform(X.T).T
 
@@ -115,32 +118,28 @@ print('Done, plotting results.')
 
 from nilearn import plotting
 import matplotlib.pyplot as plt
-from math import ceil
 
-with warnings.catch_warnings():
-    warnings.simplefilter('ignore', DeprecationWarning)
+for index, (ic_map, ic_terms) in enumerate(zip(ica_maps,
+        term_weights_for_components)):
+    if -ic_map.min() > ic_map.max():
+        # Flip the map's sign for prettiness
+        ic_map = - ic_map
+        ic_terms = - ic_terms
 
-    fig, axes = plt.subplots(int(ceil(n_components / 5.)), 5, frameon=False)
-    plt.setp(axes.flat, xticks=[], yticks=[])
-    fig.tight_layout()
+    ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
+    ic_img = masker.inverse_transform(ic_map)
+    important_terms = vocabulary[np.argsort(ic_terms)[-3:]]
+    title = 'IC%i  %s' % (index, ', '.join(important_terms[::-1]))
 
-    for index, (ic_map, ic_terms) in enumerate(zip(
-            ica_maps, term_weights_for_components)):
-        if -ic_map.min() > ic_map.max():
-            # Flip the map's sign for prettiness
-            ic_map = - ic_map
-            ic_terms = - ic_terms
+    plotting.plot_stat_map(ic_img,
+        threshold=ic_threshold, colorbar=False,
+        title=title)
 
-        ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
-        ic_image = masker.inverse_transform(ic_map)
-        display = plotting.plot_stat_map(
-            ic_image, threshold=ic_threshold, colorbar=False,
-            bg_img=mask_img, axes=axes.flat[index])
 
-        # Use the 4 terms weighted most as a title
-        important_terms = vocabulary[np.argsort(ic_terms)[-4:]]
-        title = '{0}: {1}'.format(index, ', '.join(important_terms[::-1]))
-        display.title(title, size=16)
+######################################################################
+# As we can see, some of the components capture cognitive or neurological
+# maps, while other capture noise in the database. More data, better
+# filtering, and better cognitive labels would give better maps
 
 # Done.
 plt.show()
