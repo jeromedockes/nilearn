@@ -9,11 +9,10 @@ See :func:`nilearn.datasets.fetch_neurovault`
 documentation for more details.
 
 """
-import numpy as np
 import scipy
 
 from nilearn.datasets import neurovault as nv
-from nilearn.image import new_img_like, load_img
+from nilearn.image import new_img_like, load_img, math_img
 
 
 ######################################################################
@@ -27,96 +26,67 @@ nv_data = nv.fetch_neurovault(
     contrast_definition=nv.Contains('succ', 'stop', 'go'),
     map_type='T map')
 
-images, collections = nv_data['images_meta'], nv_data['collections_meta']
-
-
-######################################################################
-# Display the paradigms and contrast definitions we've found.
-
-
-def print_title(title):
-    print('\n{0}\n{2:-<{1}}'.format(title, len(title), ''))
-
-
-print_title("Paradigms we've downloaded:")
-for im in images:
-    print("{0:>10} : {1:<}".format(im['id'],
-                                   im['cognitive_paradigm_cogatlas']))
-
-print_title("Contrast definitions for downloaded images:")
-for cd in np.unique([im['contrast_definition'] for im in images]):
-    print("{0:>10}{1}".format("", cd))
-
+images_meta = nv_data['images_meta']
+collections = nv_data['collections_meta']
 
 ######################################################################
 # Visualize the data
 
 from nilearn import plotting
 
-print('\nPreparing plots for fetched images...')
-for im in images:
+for im in images_meta:
     plotting.plot_glass_brain(im['absolute_path'],
-                              title='image {0}'.format(im['id']))
-print("Done")
+                              title='image {0}: {1}'.format(im['id'],
+                                    im['contrast_definition']))
 
 ######################################################################
 # Compute statistics
 
 
-from nilearn.image import mean_img
-
-
 def t_to_z(t_scores, deg_of_freedom):
     p_values = scipy.stats.t.sf(t_scores, df=deg_of_freedom)
     z_values = scipy.stats.norm.isf(p_values)
-    return z_values, p_values
+    return z_values
 
 
 # Compute z values
 mean_maps = []
-p_datas = []
-z_datas = []
+z_imgs = []
 ids = set()
 print("\nComputing maps...")
 for collection in [col for col in collections
                    if not(col['id'] in ids or ids.add(col['id']))]:
-    print_title("Collection {0}:".format(collection['id']))
+    print("\n\nCollection {0}:".format(collection['id']))
 
     # convert t to z
-    cur_imgs = [im for im in images if im['collection_id'] == collection['id']]
     image_z_niis = []
-    for im in cur_imgs:
+    for this_meta in images_meta:
+        if this_meta['collection_id'] != collection['id']:
+            # We don't want to load this image
+            continue
         # Load and validate the downloaded image.
-        nii = load_img(im['absolute_path'])
-        deg_of_freedom = im['number_of_subjects'] - 2
-        print("{0:>10}Image {1:>4}: degrees of freedom: {2}".format(
-            "", im['id'], deg_of_freedom))
+        nii = load_img(this_meta['absolute_path'])
+        deg_of_freedom = this_meta['number_of_subjects'] - 2
+        print("     Image {1}: degrees of freedom: {2}".format(
+            "", this_meta['id'], deg_of_freedom))
 
         # Convert data, create new image.
-        data_z, data_p = t_to_z(nii.get_data(), deg_of_freedom=deg_of_freedom)
-        p_datas.append(data_p)
-        z_datas.append(data_z)
+        z_img = new_img_like(nii,
+                    t_to_z(nii.get_data(), deg_of_freedom=deg_of_freedom))
+
+        z_imgs.append(z_img)
         image_z_niis.append(nii)
 
-    mean_map = mean_img(image_z_niis)
-    plotting.plot_glass_brain(
-        mean_map, title="Collection {0} mean map".format(collection['id']))
-    mean_maps.append(mean_map)
 
+######################################################################
+# Plot the combined z maps
 
-# Fisher's z-score on all maps
-def z_map(ref_img, z_data, affine):
-    cut_coords = [-15, -8, 6, 30, 46, 62]
-    z_meta_data = np.array(z_data).sum(axis=0) / np.sqrt(len(z_data))
-    nii = new_img_like(ref_img, z_meta_data, affine)
-    plotting.plot_stat_map(nii, display_mode='z', threshold=6,
-                           cut_coords=cut_coords, vmax=12)
+cut_coords = [-15, -8, 6, 30, 46, 62]
+nii = math_img('np.sum(z_imgs, axis=3) / np.sqrt(z_imgs.shape[3])',
+               z_imgs=z_imgs)
 
+plotting.plot_stat_map(nii, display_mode='z', threshold=6,
+                        cut_coords=cut_coords, vmax=12)
 
-z_map(mean_maps[0], z_datas, mean_maps[0].get_affine())
-
-# Fisher's z-score on combined maps
-z_input_datas = [mean_nii.get_data() for mean_nii in mean_maps]
-z_map(mean_maps[0], z_input_datas, mean_maps[0].get_affine())
 
 plotting.show()
