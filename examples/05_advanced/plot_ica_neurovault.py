@@ -52,11 +52,9 @@ term_weights[term_weights < 0] = 0
 total_scores = np.mean(term_weights, axis=0)
 
 print("\nTop 10 neurosynth terms from downloaded images:\n")
-print('{2:>20}{0:>15} : {1:<15}\n{2:>20}{2:->30}'.format(
-    'term', 'total score', ''))
+
 for term_idx in np.argsort(total_scores)[-10:][::-1]:
-    print('{0:>35} : {1:.3f}'.format(
-        vocabulary[term_idx], total_scores[term_idx]))
+    print(vocabulary[term_idx])
 
 
 ######################################################################
@@ -119,21 +117,24 @@ print('Done, plotting results.')
 from nilearn import plotting
 import matplotlib.pyplot as plt
 
-for index, (ic_map, ic_terms) in enumerate(zip(ica_maps,
-        term_weights_for_components)):
-    if -ic_map.min() > ic_map.max():
-        # Flip the map's sign for prettiness
-        ic_map = - ic_map
-        ic_terms = - ic_terms
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', DeprecationWarning)
 
-    ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
-    ic_img = masker.inverse_transform(ic_map)
-    important_terms = vocabulary[np.argsort(ic_terms)[-3:]]
-    title = 'IC%i  %s' % (index, ', '.join(important_terms[::-1]))
+    for index, (ic_map, ic_terms) in enumerate(
+            zip(ica_maps, term_weights_for_components)):
+        if -ic_map.min() > ic_map.max():
+            # Flip the map's sign for prettiness
+            ic_map = - ic_map
+            ic_terms = - ic_terms
 
-    plotting.plot_stat_map(ic_img,
-        threshold=ic_threshold, colorbar=False,
-        title=title)
+        ic_threshold = stats.scoreatpercentile(np.abs(ic_map), 90)
+        ic_img = masker.inverse_transform(ic_map)
+        important_terms = vocabulary[np.argsort(ic_terms)[-3:]]
+        title = 'IC%i  %s' % (index, ', '.join(important_terms[::-1]))
+
+        plotting.plot_stat_map(
+            ic_img, threshold=ic_threshold, colorbar=False,
+            title=title)
 
 
 ######################################################################
