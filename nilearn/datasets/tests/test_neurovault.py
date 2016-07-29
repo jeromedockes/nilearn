@@ -260,7 +260,7 @@ def test_scroll_server_results():
     assert_equal(len(result), 0)
 
 
-def test_IsNull():
+def test_is_null():
     is_null = nv.IsNull()
     assert_true(is_null != 'a')
     assert_false(is_null != '')
@@ -272,7 +272,7 @@ def test_IsNull():
     assert_true('' == is_null)
 
 
-def test_NotNull():
+def test_not_null():
     not_null = nv.NotNull()
     assert_true(not_null == 'a')
     assert_false(not_null == '')
@@ -284,7 +284,7 @@ def test_NotNull():
     assert_true('' != not_null)
 
 
-def test_NotEqual():
+def test_not_equal():
     not_equal = nv.NotEqual('a')
     assert_true(not_equal == 'b')
     assert_true(not_equal == 1)
@@ -300,7 +300,7 @@ def test_NotEqual():
     assert_true('a' != not_equal)
 
 
-def test_OrderComp():
+def test_order_comp():
     geq = nv.GreaterOrEqual('2016-07-12T11:29:12.263046Z')
     assert_true('2016-08-12T11:29:12.263046Z' == geq)
     assert_true('2016-06-12T11:29:12.263046Z' != geq)
@@ -316,7 +316,7 @@ def test_OrderComp():
     assert_false(4.6 == leq)
 
 
-def test_IsIn():
+def test_is_in():
     is_in = nv.IsIn((0, 1))
     assert_true(is_in == 0)
     assert_false(is_in == 2)
@@ -331,7 +331,7 @@ def test_IsIn():
     assert_false(countable == 12)
 
 
-def test_NotIn():
+def test_not_in():
     not_in = nv.NotIn((0, 1))
     assert_true(not_in != 0)
     assert_false(not_in != 2)
@@ -343,7 +343,7 @@ def test_NotIn():
     assert_true(2 == not_in)
 
 
-def test_Contains():
+def test_contains():
     contains = nv.Contains('a', 0)
     assert_false(contains == 10)
     assert_true(contains == ['b', 1, 'a', 0])
@@ -359,7 +359,7 @@ def test_Contains():
     assert_false('smiling face vs frowning face' == contains)
 
 
-def test_NotContains():
+def test_not_contains():
     not_contains = nv.NotContains('ab')
     assert_true(None != not_contains)
     assert_true(not_contains == 'a_b')
@@ -372,7 +372,7 @@ def test_NotContains():
     assert_false('_abcd' == not_contains)
 
 
-def test_Pattern():
+def test_pattern():
     # Python std lib doc poker hand example
     pattern_0 = nv.Pattern(r'[0-9akqj]{5}$')
     pattern_1 = nv.Pattern(r'[0-9akqj]{5}$', re.I)
@@ -403,7 +403,7 @@ def test_Pattern():
     assert_true('ak05e' != pattern_1)
 
 
-def test_ResultFilter():
+def test_result_filter():
     filter_0 = nv.ResultFilter(query_terms={'a': 0},
                                callable_filter=lambda d: len(d) < 5,
                                b=1)
@@ -430,7 +430,7 @@ def test_ResultFilter():
     assert_true(filter_1({'c': 2, 'd': 3, 'e': 4}))
 
 
-def test_ResultFilter_combinations():
+def test_result_filter_combinations():
     filter_0 = nv.ResultFilter(a=0, b=1)
     filter_1 = nv.ResultFilter(c=2, d=3)
 
@@ -571,7 +571,7 @@ def test_neurosynth_words_vectorized():
         assert((freq.sum(axis=0) == np.ones(n_im)).all())
 
 
-def test_BaseDownloadManager():
+def test_base_download_manager():
     download_manager = nv.BaseDownloadManager(neurovault_data_dir='',
                                               max_images=5)
 
@@ -612,7 +612,7 @@ def test_add_absolute_paths():
                  os.path.join('dir_1', 'neurovault', 'collection_1'))
 
 
-def test_DownloadManager():
+def test_download_manager():
     with _TemporaryDirectory():
         download_manager = nv.DownloadManager(
             neurovault_data_dir=nv.neurovault_directory())
@@ -622,7 +622,7 @@ def test_DownloadManager():
         assert_false(os.path.isdir(temp_dir))
 
 
-def test_SQLiteDownloadManager():
+def test_sqlite_download_manager():
     with _TemporaryDirectory():
         download_manager = nv.SQLiteDownloadManager(
             neurovault_data_dir=nv.neurovault_directory())
@@ -682,7 +682,7 @@ def test_json_add_im_files_paths():
 
 
 @ignore_connection_errors
-def test_ServerDataScroller():
+def test_server_data_scroller():
     scroller = nv._ServerDataScroller(wanted_collection_ids=(35,))
     for im, col in scroller.scroll():
         assert_equal(col['id'], 35)
