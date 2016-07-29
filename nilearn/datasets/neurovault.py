@@ -666,6 +666,11 @@ class _SpecialValue(object):
     def __rne__(self, other):
         return self.__ne__(other)
 
+    def __repr__(self):
+        if hasattr(self, 'repr_arg_'):
+            return '{0}({1!r})'.format(self.__class__.__name__, self.repr_arg_)
+        return '{0}()'.format(self.__class__.__name__)
+
 
 class IsNull(_SpecialValue):
     """Special value used to filter terms.
@@ -749,6 +754,7 @@ class NotEqual(_SpecialValue):
     """
     def __init__(self, negated):
         self.negated_ = negated
+        self.repr_arg_ = self.negated_
 
     def __eq__(self, other):
         return not self.negated_ == other
@@ -759,6 +765,7 @@ class _OrderComp(_SpecialValue):
     def __init__(self, bound):
         self.bound_ = bound
         self._cast = type(bound)
+        self.repr_arg_ = self.bound_
 
     def __eq__(self, other):
         try:
@@ -899,15 +906,14 @@ class IsIn(_SpecialValue):
     """Special value used to filter terms.
 
     An instance of this class is constructed with
-    `IsIn(container)`. It will allways be equal to, and only to, any
-    value for which ``value in container`` is ``True``.
+    `IsIn(*accepted)`. It will allways be equal to, and only to, any
+    value for which ``value in accepted`` is ``True``.
 
     Parameters
     ----------
     accepted : container
-        By container we mean any type which exposes a __contains__
-        method. A value will pass through the filter if it is present
-        in `accepted`.
+        A value will pass through the filter if it is present in
+        `accepted`.
 
     See Also
     --------
@@ -926,33 +932,36 @@ class IsIn(_SpecialValue):
     Examples
     --------
     >>> from nilearn.datasets.neurovault import IsIn
-    >>> countable = IsIn(range(11))
+    >>> countable = IsIn(*range(11))
     >>> 7 == countable
     True
     >>> countable == 12
     False
 
     """
-    def __init__(self, accepted):
+    def __init__(self, *accepted):
         self.accepted_ = accepted
 
     def __eq__(self, other):
         return other in self.accepted_
+
+    def __repr__(self):
+        return '{0}{1!r}'.format(
+            self.__class__.__name__, self.accepted_)
 
 
 class NotIn(_SpecialValue):
     """Special value used to filter terms.
 
     An instance of this class is constructed with
-    `NotIn(container)`. It will allways be equal to, and only to, any
-    value for which ``value in container`` is ``False``.
+    `NotIn(*rejected)`. It will allways be equal to, and only to, any
+    value for which ``value in rejected`` is ``False``.
 
     Parameters
     ----------
     rejected : container
-        By container we mean any type which exposes a __contains__
-        method. A value will pass through the filter if it is absent
-        from `rejected`.
+        A value will pass through the filter if it is absent from
+        `rejected`.
 
     See Also
     --------
@@ -969,11 +978,15 @@ class NotIn(_SpecialValue):
     nilearn.datasets.neurovault.Pattern.
 
     """
-    def __init__(self, rejected):
+    def __init__(self, *rejected):
         self.rejected_ = rejected
 
     def __eq__(self, other):
         return other not in self.rejected_
+
+    def __repr__(self):
+        return '{0}{1!r}'.format(
+            self.__class__.__name__, self.rejected_)
 
 
 class Contains(_SpecialValue):
@@ -1014,8 +1027,8 @@ class Contains(_SpecialValue):
     False
 
     """
-    def __init__(self, *args):
-        self.must_be_contained_ = args
+    def __init__(self, *must_be_contained):
+        self.must_be_contained_ = must_be_contained
 
     def __eq__(self, other):
         if not isinstance(other, Container):
@@ -1025,20 +1038,24 @@ class Contains(_SpecialValue):
                 return False
         return True
 
+    def __repr__(self):
+        return '{0}{1!r}'.format(
+            self.__class__.__name__, self.must_be_contained_)
+
 
 class NotContains(_SpecialValue):
     """Special value used to filter terms.
 
     An instance of this class is constructed with
-    `Contains(*must_not_be_contained)`. It will allways be equal to,
-    and only to, any value for which ``item in value`` is ``False``
-    for every item in ``must_be_contained``.
+    `NotContains(*must_not_be_contained)`. It will allways be equal
+    to, and only to, any value for which ``item in value`` is
+    ``False`` for every item in ``must_not_be_contained``.
 
     Parameters
     ----------
-    must_be_contained : container
+    must_not_be_contained : container
         A value will pass through the filter if it does not contain
-        any of the items in must_be_contained.
+        any of the items in must_not_be_contained.
 
     See Also
     --------
@@ -1055,8 +1072,8 @@ class NotContains(_SpecialValue):
     nilearn.datasets.neurovault.Pattern.
 
     """
-    def __init__(self, *args):
-        self.must_not_be_contained_ = args
+    def __init__(self, *must_not_be_contained):
+        self.must_not_be_contained_ = must_not_be_contained
 
     def __eq__(self, other):
         if not isinstance(other, Container):
@@ -1065,6 +1082,10 @@ class NotContains(_SpecialValue):
             if item in other:
                 return False
         return True
+
+    def __repr__(self):
+        return '{0}{1!r}'.format(
+            self.__class__.__name__, self.must_not_be_contained_)
 
 
 class Pattern(_SpecialValue):
@@ -1123,6 +1144,10 @@ class Pattern(_SpecialValue):
                 self.pattern_, other, self.flags_) is None:
             return False
         return True
+
+    def __repr__(self):
+        return '{0}(pattern={1!r}, flags={2})'.format(
+            self.__class__.__name__, self.pattern_, self.flags_)
 
 
 class ResultFilter(object):
@@ -1281,6 +1306,9 @@ class ResultFilter(object):
 
         """
         self.callable_filters_.append(callable_filter)
+
+    def __str__(self):
+        return self.__class__.__name__
 
 
 def _simple_download(url, target_file, temp_dir):
@@ -2408,14 +2436,15 @@ class _ServerDataScroller(object):
              collection_terms, collection_filter,
              _COL_FILTERS_AVAILABLE_ON_SERVER)
         self.collection_filter_ = ResultFilter(
-            {'id': NotIn(ignored_collection_ids)}).AND(self.collection_filter_)
+            {'id': NotIn(*ignored_collection_ids)}).AND(
+                self.collection_filter_)
 
         (self.image_terms_,
          self.image_filter_) = _move_unknown_terms_to_local_filter(
              image_terms, image_filter,
              _IM_FILTERS_AVAILABLE_ON_SERVER)
         self.image_filter_ = ResultFilter(
-            {'id': NotIn(ignored_image_ids)}).AND(self.image_filter_)
+            {'id': NotIn(*ignored_image_ids)}).AND(self.image_filter_)
 
         self.scroll_mode_ = 'filtered'
 
@@ -2682,8 +2711,12 @@ def _scroll_local_data(neurovault_dir,
         image_terms = {}
     if wanted_collection_ids is not None or wanted_image_ids is not None:
         collection_filter = _empty_filter
-        image_filter = ResultFilter({'id': IsIn(wanted_image_ids)}).OR(
-            ResultFilter(collection_id=IsIn(wanted_collection_ids)))
+        if wanted_collection_ids is None:
+            wanted_collection_ids = ()
+        if wanted_image_ids is None:
+            wanted_image_ids = ()
+        image_filter = ResultFilter({'id': IsIn(*wanted_image_ids)}).OR(
+            ResultFilter(collection_id=IsIn(*wanted_collection_ids)))
         max_images = None
     else:
         collection_filter = ResultFilter(
@@ -2888,7 +2921,7 @@ def basic_collection_terms():
 
     """
     return {'number_of_images': NotNull(),
-            'id': NotIn(_KNOWN_BAD_COLLECTION_IDS)}
+            'id': NotIn(*_KNOWN_BAD_COLLECTION_IDS)}
 
 
 def basic_image_terms():
@@ -2906,9 +2939,9 @@ def basic_image_terms():
 
     """
     return {'not_mni': False, 'is_valid': True, 'is_thresholded': False,
-            'map_type': NotIn(('ROI/mask', 'anatomical', 'parcellation')),
+            'map_type': NotIn('ROI/mask', 'anatomical', 'parcellation'),
             'image_type': NotEqual('atlas'),
-            'id': NotIn(_KNOWN_BAD_IMAGE_IDS)}
+            'id': NotIn(*_KNOWN_BAD_IMAGE_IDS)}
 
 
 def _move_col_id(im_terms, col_terms):
