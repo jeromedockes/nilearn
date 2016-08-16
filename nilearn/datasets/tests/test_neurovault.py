@@ -738,15 +738,9 @@ class TestDownloadManager(neurovault.BaseDownloadManager):
         raise neurovault.URLError('bad download')
 
 
-def test_chain_local_and_remote():
-    assert_raises(ValueError, lambda: list(
-        neurovault._chain_local_and_remote(
-            neurovault.neurovault_directory(), 'bad_mode')))
-
-
-def test_fetch_neurovault_filtered():
+def test_fetch_neurovault():
     with _TemporaryDirectory() as temp_dir:
-        data = neurovault.fetch_neurovault_filtered(
+        data = neurovault.fetch_neurovault(
             max_images=1, fetch_neurosynth_words=True,
             fetch_reduced_rep=True, mode='overwrite')
         if data is not None:
@@ -785,7 +779,7 @@ def test_fetch_neurovault_filtered():
             assert_false(neurovault._absolute_paths_incorrect())
 
             assert_warns(
-                Warning, neurovault.fetch_neurovault_filtered,
+                Warning, neurovault.fetch_neurovault,
                 download_manager=TestDownloadManager(
                     max_images=2,
                     neurovault_data_dir=neurovault.neurovault_directory()))
@@ -793,7 +787,7 @@ def test_fetch_neurovault_filtered():
         os.chmod(temp_dir, stat.S_IREAD)
         if os.access(temp_dir, os.W_OK):
             return
-        assert_warns(Warning, neurovault.fetch_neurovault_filtered)
+        assert_warns(Warning, neurovault.fetch_neurovault)
 
 
 def test_fetch_neurovault_ids():
@@ -801,6 +795,7 @@ def test_fetch_neurovault_ids():
     # and downloading an image which has no collection dir
     # or metadata yet.
     with _TemporaryDirectory():
+        assert_raises(ValueError, neurovault.fetch_neurovault_ids, mode='bad')
         data = neurovault.fetch_neurovault_ids(image_ids=[111])
         if data is not None:
             assert_equal(data['images_meta'][0]['id'], 111)
