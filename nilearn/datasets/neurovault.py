@@ -3763,9 +3763,14 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
     try:
         cursor = cursor.execute(
             """CREATE VIEW valid_collections AS SELECT DISTINCT
-            collections.* FROM
+            collections.*, im_counts.n_images as n_images FROM
             valid_images INNER JOIN collections ON
-            valid_images.collection_id=collections.id""")
+            valid_images.collection_id=collections.id
+            INNER JOIN (select collections.id as collection_id,
+            count(*) as n_images from valid_images inner join collections
+            on valid_images.collection_id = collections.id 
+            group by collection_id) im_counts 
+            on collections.id = im_counts.collection_id""")
     except sqlite3.OperationalError:
         _logger.debug("Failed to create 'valid_collections' view: {0}".format(
             traceback.format_exc()))
