@@ -3768,8 +3768,8 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
             valid_images.collection_id=collections.id
             INNER JOIN (select collections.id as collection_id,
             count(*) as n_images from valid_images inner join collections
-            on valid_images.collection_id = collections.id 
-            group by collection_id) im_counts 
+            on valid_images.collection_id = collections.id
+            group by collection_id) im_counts
             on collections.id = im_counts.collection_id""")
     except sqlite3.OperationalError:
         _logger.debug("Failed to create 'valid_collections' view: {0}".format(
