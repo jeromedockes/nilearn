@@ -3065,7 +3065,7 @@ def _fetch_neurovault_impl(
     scroller = list(scroller)
     if not scroller:
         return None
-    images_meta, collections_meta = zip(*scroller)
+    images_meta, collections_meta = map(list, zip(*scroller))
     images = [im_meta.get('absolute_path') for im_meta in images_meta]
     result = Bunch(images=images,
                    images_meta=images_meta,
