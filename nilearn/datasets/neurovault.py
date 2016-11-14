@@ -1094,17 +1094,7 @@ def _checked_get_dataset_dir(dataset_name, suggested_dir=None,
 
 
 def neurovault_directory(suggested_dir=None):
-    """Return path to neurovault directory on filesystem.
-
-    A connection to a local database in this directory is open and its
-    contents are updated if necessary.
-
-    See Also
-    --------
-    nilearn.datasets.neurovault.set_neurovault_directory
-    nilearn.datasets.neurovault.refresh_db
-
-    """
+    """Return path to neurovault directory on filesystem."""
     if getattr(neurovault_directory, 'directory_path_', None) is not None:
         return neurovault_directory.directory_path_
 
@@ -1126,11 +1116,6 @@ def neurovault_directory(suggested_dir=None):
 def set_neurovault_directory(new_neurovault_dir=None):
     """Set the default neurovault directory to a new location.
 
-    If the preferred directory is changed, if a connection to a local
-    database was open, it is closed; a connection is open to a
-    database in the new directory and its contents are updated if
-    necessary.
-
     Parameters
     ----------
     new_neurovault_dir : str, optional (default=None)
@@ -1147,8 +1132,6 @@ def set_neurovault_directory(new_neurovault_dir=None):
     See Also
     --------
     nilearn.datasets.neurovault.neurovault_directory
-    nilearn.datasets.neurovault.refresh_db
-    nilearn.datasets.neurovault._checked_get_dataset_dir
 
     """
     _logger.debug('Set neurovault directory: {0}...'.format(
@@ -1262,7 +1245,7 @@ def _remove_none_strings(metadata):
     the string "None", "None / Other", or "null", instead of having
     ``null`` in the json file; we replace these strings with None so
     that they are consistent with the rest and for correct behaviour
-    of the SQL ``IS NULL`` statement.
+    when we want to select or filter out null values.
 
     """
     for key, value in metadata.items():
@@ -2260,7 +2243,7 @@ def _fetch_neurovault_impl(
     scroller = list(scroller)
     if not scroller:
         return None
-    images_meta, collections_meta = zip(*scroller)
+    images_meta, collections_meta = map(list, zip(*scroller))
     images = [im_meta.get('absolute_path') for im_meta in images_meta]
     result = Bunch(images=images,
                    images_meta=images_meta,
@@ -2350,10 +2333,6 @@ def fetch_neurovault(
 
     download_manager : BaseDownloadManager, optional (default=None)
         The download manager used to handle data from neurovault.org.
-        If ``None``, one is constructed (an ``SQLiteDownloadManager``).
-        See documentation for ``SQLiteDownloadManager`` or
-        ``DownloadManager`` for fine-grained control of how metadata
-        is handled.
 
     kwarg_image_filters
         Keyword arguments are understood to be filter terms for
@@ -2383,15 +2362,6 @@ def fetch_neurovault(
 
     Notes
     -----
-    The default behaviour is to store the most important fields (which
-    you can define) of metadata in an ``sqlite`` database, which is
-    actually just a file but can be queried like an SQL database. So
-    in addition to the ``Bunch`` returned by this function, if you
-    find it more convenient, you can access the data through this
-    other interface once it has been downloaded. See the documentation
-    for ``read_sql_query``, ``local_database_connection`` and
-    ``local_database_cursor`` for details.
-
     Images and collections from disk are fetched before remote data.
 
     Some helpers are provided in the ``neurovault`` module to express
@@ -2401,16 +2371,6 @@ def fetch_neurovault(
         ``GreaterOrEqual``, ``GreaterThan``, ``LessOrEqual``,
         ``LessThan``, ``IsIn``, ``NotIn``, ``Contains``,
         ``NotContains``, ``Pattern``.
-
-    Some authors have included many fields in the metadata they
-    provide; in order to make it easier to figure out which fields are
-    interesting to you, ``show_neurovault_image_keys`` and
-    ``show_neurovault_collection_keys`` could be of help.  They print
-    the field names that were seen in metadata and the types of the
-    values that were associated to them. For this information, you can
-    also have a look at the module-level variables
-    ``_IMAGE_BASIC_FIELDS``, ``_COLLECTION_BASIC_FIELDS``,
-    ``_ALL_COLLECTION_FIELDS`` and ``_ALL_IMAGE_FIELDS``.
 
     If you pass a single value to match against the collection id
     (wether as the 'id' field of the collection metadata or as the
@@ -2466,9 +2426,6 @@ def fetch_neurovault(
             collection_terms=dict(basic_collection_terms(), DOI=NotNull()))
 
     To update all the images (matching the default filters)::
-
-        newest = read_sql_query(
-            "SELECT MAX(modify_date) AS max_date FROM images")['max_date'][0]
 
         fetch_neurovault(
             max_images=None, mode='overwrite', modify_date=GreaterThan(newest))
@@ -2535,10 +2492,6 @@ def fetch_neurovault_ids(
 
     download_manager : BaseDownloadManager, optional (default=None)
         The download manager used to handle data from neurovault.org.
-        If ``None``, one is constructed (an ``SQLiteDownloadManager``).
-        See documentation for ``SQLiteDownloadManager`` or
-        ``DownloadManager`` for fine-grained control of how metadata
-        is handled.
 
     Returns
     -------
@@ -2569,15 +2522,6 @@ def fetch_neurovault_ids(
 
     Notes
     -----
-    The default behaviour is to store the most important fields (which
-    you can define) of metadata in an ``sqlite`` database, which is
-    actually just a file but can be queried like an SQL database. So
-    in addition to the ``Bunch`` returned by this function, if you
-    find it more convenient, you can access the data through this
-    other interface once it has been downloaded. See the documentation
-    for ``read_sql_query``, ``local_database_connection`` and
-    ``local_database_cursor`` for details.
-
     Images and collections from disk are fetched before remote data.
 
     In `download_new` mode, if a file exists on disk, it is not
