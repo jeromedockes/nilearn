@@ -1970,6 +1970,10 @@ class _DataScroller(object):
             urljoin(_NEUROVAULT_COLLECTIONS_URL, str(col_id)) for
             col_id in self.wanted_collection_ids_ or [] if
             col_id not in self.visited_collections_]
+
+        if(collection_urls):
+            _logger.debug('Reading server neurovault data.')
+
         for collection in _yield_from_url_list(collection_urls):
             for image in self._scroll_collection(collection):
                 self.visited_images_.add(image['id'])
@@ -2007,6 +2011,8 @@ class _DataScroller(object):
             failed in a row.
 
         """
+        _logger.debug('Reading server neurovault data.')
+
         collections = _scroll_server_results(
             _NEUROVAULT_COLLECTIONS_URL, query_terms=self.collection_terms_,
             local_filter=self.collection_filter_,
@@ -2112,7 +2118,6 @@ class _DataScroller(object):
             len(self.visited_images_) >= self.max_images_):
             return
 
-        _logger.debug('Reading server neurovault data.')
         server_data = scroll_modes[self.scroll_mode_]()
         while True:
             try:
