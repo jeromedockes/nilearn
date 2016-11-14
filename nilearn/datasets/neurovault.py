@@ -2048,14 +2048,16 @@ class _DataScroller(object):
         for collection in filter(
                 self.local_collection_filter_,
                 map(_json_add_collection_dir, collections)):
+
+            self.visited_collections_.add(collection['id'])
             images = glob(os.path.join(
                 collection['absolute_path'], 'image_*_metadata.json'))
+
             for image in filter(self.local_image_filter_,
                                 map(_json_add_im_files_paths, images)):
                 if len(self.visited_images_) == self.max_images_:
                     return
                 self.visited_images_.add(image['id'])
-                self.visited_collections_.add(collection['id'])
                 image, collection = self.download_manager_.update(
                     image, collection)
                 yield image, collection
