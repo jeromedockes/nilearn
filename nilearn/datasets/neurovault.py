@@ -53,7 +53,7 @@ class MaxImagesReached(StopIteration):
 
 
 def prepare_logging(level=logging.DEBUG):
-    """Get the root logger and add a handler to it if it doesn't have any.
+    """Get the root logger.
 
     Parameters
     ----------
@@ -72,19 +72,32 @@ def prepare_logging(level=logging.DEBUG):
         return logger
     logger.propagate = False
     logger.setLevel(logging.DEBUG)
-    console_logger = logging.StreamHandler()
-    console_logger.setLevel(level)
-    formatter = logging.Formatter('%(levelname)s: %(message)s')
-    console_logger.setFormatter(formatter)
-    logger.addHandler(console_logger)
     return logger
 
 
 _logger = prepare_logging(level=logging.INFO)
 
 
+def add_logging_to_console(level=logging.DEBUG):
+    console_logger = logging.StreamHandler()
+    console_logger.setLevel(level)
+    formatter = logging.Formatter('%(message)s')
+    console_logger.setFormatter(formatter)
+    _logger.addHandler(console_logger)
+
+
+def add_log_file(file_name, level=logging.DEBUG):
+    file_logger = logging.FileHandler(file_name)
+    file_logger.setLevel(level)
+    formatter = logging.Formatter('%(asctime)s: %(message)s')
+    file_logger.setFormatter(formatter)
+    _logger.addHandler(file_logger)
+
+
 def set_logging_level(level=logging.INFO):
-    _logger.handlers[0].setLevel(level)
+    for handler in _logger.handlers:
+        handler.setLevel(level)
+
 
 
 def _append_filters_to_query(query, filters):
@@ -163,7 +176,7 @@ def _get_batch(query, prefix_msg=''):
     """Given an URL, get the HTTP response and transform it to python dict.
 
     The URL is used to send an HTTP GET request and the response is
-    transformed into a dict.
+    transformed into a dictionary.
 
     Parameters
     ----------
@@ -1439,6 +1452,7 @@ class DownloadManager(BaseDownloadManager):
         - Optionally, the reduced representations of the brain maps
           (in .npy files).
         - Optionally, for each image, the words weights associated to
+          it by Neurosynth.
 
     Parameters
     ----------
