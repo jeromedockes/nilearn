@@ -2577,6 +2577,7 @@ class _DataScroller(object):
             col_id in self.wanted_collection_ids_ or [] if
             col_id not in self.visited_collections_]
         for collection in _yield_from_url_list(collection_urls):
+            collection = self.download_manager_.collection(collection)
             for image in self._scroll_collection(collection):
                 self.visited_images_.add(image['id'])
                 yield image, collection
