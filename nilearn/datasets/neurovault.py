@@ -1037,6 +1037,7 @@ def _simple_download(url, target_file, temp_dir):
     here we replace it with an ``URLError``.
 
     """
+    print('Downloading file {} to {}'.format(url, target_file))
     _logger.debug('Downloading file: {0}'.format(url))
     try:
         downloaded = _fetch_file(url, temp_dir, resume=False,
@@ -1636,6 +1637,9 @@ class DownloadManager(BaseDownloadManager):
         _write_metadata(image_info, metadata_file_path)
         # self.already_downloaded_ is incremented only after
         # this routine returns successfully.
+        print('Already fetched {0:6<} image{1}'.format(
+            self.already_downloaded_ + 1,
+            ('s' if self.already_downloaded_ + 1 > 1 else '')))
         _logger.info('Already fetched {0} image{1}.'.format(
             self.already_downloaded_ + 1,
             ('s' if self.already_downloaded_ + 1 > 1 else '')))
@@ -2062,6 +2066,7 @@ class _DataScroller(object):
     @_managed_method()
     def _scroll_local(self):
         _logger.debug('Reading local neurovault data.')
+        print('Reading local neurovault data.')
         collections = glob(
             os.path.join(
                 self.neurovault_dir_, '*', 'collection_metadata.json'))
@@ -2092,6 +2097,8 @@ class _DataScroller(object):
                 self.image_filter_)
 
         found = len(self.visited_images_)
+        print('{0} image{1} found on local disk.'.format(
+            ('No' if not found else found), ('s' if found > 1 else '')))
         _logger.debug('{0} image{1} found on local disk.'.format(
             ('No' if not found else found), ('s' if found > 1 else '')))
 
