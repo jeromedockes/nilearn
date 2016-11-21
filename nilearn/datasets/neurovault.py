@@ -2655,14 +2655,17 @@ class _DataScroller(object):
         for collection in filter(
                 self.local_collection_filter_,
                 map(_json_add_collection_dir, collections)):
+
+            self.visited_collections_.add(collection['id'])
             images = glob(os.path.join(
                 collection['absolute_path'], 'image_*_metadata.json'))
+
             for image in filter(self.local_image_filter_,
                                 map(_json_add_im_files_paths, images)):
                 if len(self.visited_images_) == self.max_images_:
                     return
                 self.visited_images_.add(image['id'])
-                self.visited_collections_.add(collection['id'])
+
                 image, collection = self.download_manager_.update(
                     image, collection)
                 yield image, collection
@@ -3063,7 +3066,7 @@ def _fetch_neurovault_impl(
     scroller = list(scroller)
     if not scroller:
         return None
-    images_meta, collections_meta = zip(*scroller)
+    images_meta, collections_meta = map(list, zip(*scroller))
     images = [im_meta.get('absolute_path') for im_meta in images_meta]
     result = Bunch(images=images,
                    images_meta=images_meta,
@@ -3764,9 +3767,14 @@ def _create_schema(cursor, im_fields=_IMAGE_BASIC_FIELDS,
     try:
         cursor = cursor.execute(
             """CREATE VIEW valid_collections AS SELECT DISTINCT
-            collections.* FROM
+            collections.*, im_counts.n_images as n_images FROM
             valid_images INNER JOIN collections ON
-            valid_images.collection_id=collections.id""")
+            valid_images.collection_id=collections.id
+            INNER JOIN (select collections.id as collection_id,
+            count(*) as n_images from valid_images inner join collections
+            on valid_images.collection_id = collections.id
+            group by collection_id) im_counts
+            on collections.id = im_counts.collection_id""")
     except sqlite3.OperationalError:
         _logger.debug("Failed to create 'valid_collections' view: {0}".format(
             traceback.format_exc()))
