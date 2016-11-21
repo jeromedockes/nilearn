@@ -1668,7 +1668,7 @@ class DownloadManager(BaseDownloadManager):
             self.temp_dir_ = _get_temp_dir(self.suggested_temp_dir_)
 
     def finish(self):
-        """Cleanup after downlaod sespsion.
+        """Cleanup after download session.
 
         If ``self.start`` created a temporary directory for the
         download session, remove it.
