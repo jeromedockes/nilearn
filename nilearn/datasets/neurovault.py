@@ -1989,6 +1989,7 @@ class _DataScroller(object):
             _logger.debug('Reading server neurovault data.')
 
         for collection in _yield_from_url_list(collection_urls):
+            collection = self.download_manager_.collection(collection)
             for image in self._scroll_collection(collection):
                 self.visited_images_.add(image['id'])
                 yield image, collection
