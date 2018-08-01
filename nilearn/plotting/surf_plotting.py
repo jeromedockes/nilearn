@@ -208,10 +208,13 @@ def plot_surf(surf_mesh, surf_map=None, bg_map=None,
             # control background darkness
             bg_faces *= darkness
             face_colors = plt.cm.gray_r(bg_faces)
+            # modify alpha values of background
+            face_colors[:, 3] = alpha * face_colors[:, 3]
+            # should it be possible to modify alpha of surf data as well?
 
-        # modify alpha values of background
-        face_colors[:, 3] = alpha * face_colors[:, 3]
-        # should it be possible to modify alpha of surf data as well?
+        else:
+            face_colors = np.ones((faces.shape[0], 4))
+            face_colors[:, :3] *= .5
 
         if surf_map is not None:
             surf_map_data = load_surf_data(surf_map)
