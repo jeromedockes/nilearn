@@ -7,6 +7,7 @@
     $INSERT_JS_LIBRARIES_HERE
 
     <script>
+
         var surfaceMapInfo = $INSERT_STAT_MAP_JSON_HERE;
 
 
@@ -41,6 +42,7 @@
                             surfaceMapInfo["cbar_height"],
                             color=textColor(surfaceMapInfo["black_bg"]));
             }
+
         }
 
         function addPlot() {
@@ -54,6 +56,16 @@
             return updateLayout("surface-plot", "select-view",
                                 surfaceMapInfo["black_bg"]);
         }
+
+     function exportPlot(){
+         Plotly.toImage("surface-plot",{})
+               .then(
+                   function(url)
+                   {
+                       $("#png-export").attr("src", url);
+                   }
+               );
+     }
 
     </script>
     <script>
@@ -74,6 +86,7 @@
                 });
                 $(window).resize(surfaceRelayout);
 
+                $("#export-button").click(exportPlot);
             });
     </script>
 </head>
@@ -101,6 +114,8 @@
         <option value="custom">view: -</option>
     </select>
 
+    <button type="button" id="export-button">export png</button>
+    <img id="png-export" alt=""></img>
 </body>
 
 </html>
