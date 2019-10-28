@@ -1,5 +1,21 @@
-0.6.0a
+0.6.0b
 ======
+
+Changes
+-------
+
+- :func:`nilearn.datasets.fetch_neurovault` now does not filter out images that
+  have their metadata field `is_valid` cleared by default.
+
+Fixes
+-----
+
+- :func:`nilearn.plotting.plot_connectome` now correctly displays marker size on 'l'
+  and 'r' orientations, if an array or a list is passed to the function.
+
+
+0.6.0a0
+=======
 
 **Released October 2019**
 
