@@ -13,6 +13,9 @@ Fixes
 - :func:`nilearn.plotting.plot_connectome` now correctly displays marker size on 'l'
   and 'r' orientations, if an array or a list is passed to the function.
 
+- Interactive plotting functions now work with images containing boolean or
+  unsigned data when not specifying `vmin` and when `symmetric_cmap` is `True`
+  (fixed bug in corner case)
 
 0.6.0a0
 =======
