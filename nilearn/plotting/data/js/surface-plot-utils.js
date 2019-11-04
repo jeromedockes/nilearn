@@ -27,16 +27,21 @@ function decodeBase64(encoded, dtype) {
     return decoded;
 }
 
-function getAxisConfig() {
+function getAxisConfig(title="") {
     let axisConfig = {
-        showgrid: false,
-        showline: false,
+        showgrid: true,
+        showline: true,
         ticks: '',
         title: '',
-        showticklabels: false,
-            zeroline: false,
-        showspikes: false,
-        spikesides: false
+        showticklabels: true,
+        zeroline: true,
+        showspikes: true,
+        spikesides: false,
+        showaxeslabels: true,
+        nticks: 4,
+        tickfont: {size: 20},
+        zerolinewidth: 4,
+        title: {text: title, font: {size: 30}}
     };
 
     return axisConfig;
@@ -103,7 +108,6 @@ function getCamera(plotDivId, viewSelectId) {
 function getLayout(plotDivId, viewSelectId, blackBg) {
 
     let camera = getCamera(plotDivId, viewSelectId);
-    let axisConfig = getAxisConfig();
 
     let height = Math.min($(window).outerHeight() * .9,
                             $(window).width() * 2 / 3);
@@ -117,9 +121,9 @@ function getLayout(plotDivId, viewSelectId, blackBg) {
         axis_bgcolor: '#333',
         scene: {
             camera: camera,
-            xaxis: axisConfig,
-            yaxis: axisConfig,
-            zaxis: axisConfig
+            xaxis: getAxisConfig("X (mm)"),
+            yaxis: getAxisConfig("Y (mm)"),
+            zaxis: getAxisConfig("Z (mm)")
         }
     };
 
