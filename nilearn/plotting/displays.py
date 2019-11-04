@@ -1091,10 +1091,11 @@ class OrthoSlicer(BaseSlicer):
         facecolor = 'k' if self._black_bg else 'w'
         # Create our axes:
         self.axes = dict()
+        width = 1 / len(self._cut_displayed)
         for index, direction in enumerate(self._cut_displayed):
             fh = self.frame_axes.get_figure()
-            ax = fh.add_axes([0.3 * index * (x1 - x0) + x0, y0,
-                              .3 * (x1 - x0), y1 - y0], aspect='equal')
+            ax = fh.add_axes([width * index * (x1 - x0) + x0, y0,
+                              width * (x1 - x0), y1 - y0], aspect='equal')
             if LooseVersion(matplotlib.__version__) >= LooseVersion("1.6"):
                 ax.set_facecolor(facecolor)
             else:
